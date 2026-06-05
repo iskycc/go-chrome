@@ -1,0 +1,43 @@
+# Build outputs
+/go-chrome
+/go-chrome.exe
+/dist/
+/build/
+/.tools/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Runtime data
+/data/
+/logs/
+/chrome/
+/chrome.bak/
+/chrome.tmp/
+/chrome.old/
+
+# Download/cache artifacts
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.log
+
+# Go test/build cache artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local env files
+.env
+.env.*
