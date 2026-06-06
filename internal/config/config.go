@@ -44,6 +44,8 @@ type AppConfig struct {
 	CloseManagedChromeOnExit bool   `json:"closeManagedChromeOnExit"`
 	LogRetentionDays         int    `json:"logRetentionDays"`
 	Theme                    string `json:"theme"`
+	WindowWidth              int    `json:"windowWidth"`
+	WindowHeight             int    `json:"windowHeight"`
 }
 
 // Default returns the default configuration.
@@ -69,6 +71,8 @@ func Default() *Config {
 			CloseManagedChromeOnExit: true,
 			LogRetentionDays:         14,
 			Theme:                    "default",
+			WindowWidth:              1400,
+			WindowHeight:             900,
 		},
 	}
 }
@@ -111,6 +115,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.App.LogRetentionDays == 0 {
 		cfg.App.LogRetentionDays = defaultCfg.App.LogRetentionDays
+	}
+	if cfg.App.WindowWidth == 0 {
+		cfg.App.WindowWidth = defaultCfg.App.WindowWidth
+	}
+	if cfg.App.WindowHeight == 0 {
+		cfg.App.WindowHeight = defaultCfg.App.WindowHeight
 	}
 	return &cfg, nil
 }

@@ -104,8 +104,9 @@ go test ./internal/browser ./internal/runner ./internal/config ./internal/flow .
 
 ## 常见风险
 
-- `DevToolsActivePort` 位置可能是 user-data-dir 根目录，也可能在 `Default` 子目录；读取逻辑必须兼容两者。
-- Fyne 控件不能随意从后台 goroutine 直接更新。
+- `DevToolsActivePort` 位置可能是 user-data-dir 根目录，也可能在 `Default` 子目录；读取逻辑兼容两者（`ReadDevToolsPort` 会依次尝试）。
+- Fyne 控件不能随意从后台 goroutine 直接更新；已使用 `fyne.Do` 包装 UI 更新。
 - `official_fixed_version` 目前是预留配置，尚未实现。
-- `retry` 失败策略字段已存在，但自动重试次数控制尚未完整实现。
-- 单步执行当前是“从选中步骤运行到结束”，不是真正只执行一步。
+- `retry` 失败策略已实现：当步骤的 `onError` 为 `retry` 时，最多自动重试 2 次。
+- 单步执行已实现为真正的逐步执行：`StepRunner.Init()` 初始化环境，`Next()` 每次执行一步。UI 中"单步执行"按钮初始化后会变为"下一步"。
+- 输入模板支持嵌套 `${}`（如 `${var:user=SP${11000-11099}}`），解析器使用栈深度匹配括号。
