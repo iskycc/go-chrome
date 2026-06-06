@@ -115,6 +115,28 @@ func NewStep(name string, t StepType) Step {
 	}
 }
 
+// NewExampleLoginFlow creates a sample flow for onboarding.
+func NewExampleLoginFlow() *Flow {
+	f := NewFlow("示例：登录测试")
+	f.Tags = []string{"示例"}
+	f.Steps = []Step{
+		NewStep("打开网址", StepNavigate),
+		NewStep("输入用户名", StepInput),
+		NewStep("输入密码", StepInput),
+		NewStep("点击登录", StepClick),
+		NewStep("断言欢迎文本", StepAssertExists),
+		NewStep("页面截图", StepScreenshot),
+	}
+	f.Steps[0].Target = Target{Strategy: TargetXPath, Value: "https://example.com/login"}
+	f.Steps[1].Target = Target{Strategy: TargetXPath, Value: "//input[@id='username']"}
+	f.Steps[1].Input = Input{Mode: InputTemplate, Text: "${var:user=SP${11000-11099}}"}
+	f.Steps[2].Target = Target{Strategy: TargetXPath, Value: "//input[@id='password']"}
+	f.Steps[2].Input = Input{Mode: InputTemplate, Text: "Password123"}
+	f.Steps[3].Target = Target{Strategy: TargetXPath, Value: "//button[@type='submit']"}
+	f.Steps[4].Target = Target{Strategy: TargetXPath, Value: "//div[contains(text(),'欢迎')]"}
+	return f
+}
+
 // Clone creates a deep copy of the flow with new IDs.
 func (f *Flow) Clone() *Flow {
 	now := time.Now()
