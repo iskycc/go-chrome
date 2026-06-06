@@ -5,30 +5,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go-chrome/internal/browser"
 	"go-chrome/internal/config"
 	"go-chrome/internal/flow"
-	"go-chrome/internal/logx"
 	"go-chrome/internal/template"
 )
 
 // Runner executes flows via CDP.
 type Runner struct {
-	cfg     *config.RunnerConfig
-	browser *browser.Manager
-	cdp     *browser.CDPClient
-	events  chan Event
-	stopCh  chan struct{}
-	running bool
+	cfg          *config.RunnerConfig
+	browser      *browser.Manager
+	cdp          *browser.CDPClient
+	history      *HistoryStore
+	events       chan Event
+	stopCh       chan struct{}
+	running      bool
 }
 
 // NewRunner creates a new runner.
-func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager) *Runner {
+func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager, history *HistoryStore) *Runner {
 	return &Runner{
 		cfg:     cfg,
 		browser: bm,
+		history: history,
 		events:  make(chan Event, 100),
 		stopCh:  make(chan struct{}),
 	}
@@ -64,13 +66,19 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 		Steps:     make([]StepResult, 0, len(f.Steps)),
 		Status:    StatusRunning,
 	}
+	defer func() {
+		result.TotalSteps = len(f.Steps)
+		result.FinishedAt = time.Now()
+		if r.history != nil {
+			_ = r.history.Save(result)
+		}
+		r.emit(Event{Type: EventRunDone, RunResult: result})
+	}()
 
 	if !r.browser.IsInstalled() {
 		if err := r.browser.Install(nil); err != nil {
 			result.Status = StatusFailed
-			result.FinishedAt = time.Now()
 			r.emit(Event{Type: EventLog, LogMessage: "Install Chrome failed: " + err.Error()})
-			r.emit(Event{Type: EventRunDone, RunResult: result})
 			return result
 		}
 	}
@@ -84,15 +92,13 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 	port, err := r.browser.StartReplay(runID)
 	if err != nil {
 		result.Status = StatusFailed
-		result.FinishedAt = time.Now()
-		r.emit(Event{Type: EventRunDone, RunResult: result})
+		r.emit(Event{Type: EventLog, LogMessage: "Start Chrome failed: " + err.Error()})
 		return result
 	}
 	cdp, err := browser.Connect(port)
 	if err != nil {
 		result.Status = StatusFailed
-		result.FinishedAt = time.Now()
-		r.emit(Event{Type: EventRunDone, RunResult: result})
+		r.emit(Event{Type: EventLog, LogMessage: "CDP connect failed: " + err.Error()})
 		return result
 	}
 	r.cdp = cdp
@@ -106,23 +112,14 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 		select {
 		case <-r.stopCh:
 			result.Status = StatusFailed
-			result.FinishedAt = time.Now()
-			r.emit(Event{Type: EventRunDone, RunResult: result})
+			r.emit(Event{Type: EventLog, LogMessage: "用户停止执行"})
 			return result
 		default:
 		}
 
 		step := f.Steps[i]
-		r.emit(Event{Type: EventStepStart, StepIndex: i})
-		logx.Infof("Running step %d: %s (%s)", i, step.Name, step.Type)
-
-		timeout := time.Duration(step.TimeoutMs) * time.Millisecond
-		if timeout <= 0 {
-			timeout = time.Duration(r.cfg.DefaultTimeoutMs) * time.Millisecond
-		}
-		ctx, cancel := context.WithTimeout(r.cdp.Context(), timeout)
-		res := actExec.ExecuteStep(ctx, step, eng)
-		cancel()
+		r.emit(Event{Type: EventStepStart, StepIndex: i, StepName: step.Name})
+		res := r.executeStepWithRetry(actExec, step, eng)
 
 		result.Steps = append(result.Steps, *res)
 		if res.Status == StatusSuccess {
@@ -133,9 +130,16 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 			result.SkippedCount++
 		}
 
-		logMsg := fmt.Sprintf("Step %d %s: %s", i, step.Name, res.Status)
+		logMsg := fmt.Sprintf("步骤 %d %s: %s", i+1, step.Name, res.Status)
 		if res.Error != "" {
 			logMsg += " - " + res.Error
+		}
+		if res.GeneratedInput != "" {
+			if step.Input.MaskInLogs || r.cfg.MaskInputValueInLogs {
+				logMsg += " [输入值已脱敏]"
+			} else {
+				logMsg += " 输入: " + maskIfNeeded(res.GeneratedInput, 4)
+			}
 		}
 		r.emit(Event{Type: EventLog, LogMessage: logMsg})
 		r.emit(Event{Type: EventStepDone, StepIndex: i, Result: res})
@@ -143,19 +147,52 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 		if res.Status == StatusFailed {
 			if step.OnError == flow.ErrStop {
 				result.Status = StatusFailed
-				break
+				return result
 			}
-			// continue or retry not fully implemented in this version
 		}
 	}
 
-	result.TotalSteps = len(f.Steps)
-	if result.Status != StatusFailed {
+	if result.FailedCount > 0 {
+		result.Status = StatusFailed
+	} else {
 		result.Status = StatusSuccess
 	}
-	result.FinishedAt = time.Now()
-	r.emit(Event{Type: EventRunDone, RunResult: result})
 	return result
+}
+
+func (r *Runner) executeStepWithRetry(actExec *ActionExecutor, step flow.Step, eng *template.Engine) *StepResult {
+	retries := 0
+	if step.OnError == flow.ErrRetry {
+		retries = 2 // default retry count; could be configurable
+	}
+
+	var res *StepResult
+	for attempt := 0; attempt <= retries; attempt++ {
+		if attempt > 0 {
+			r.emit(Event{Type: EventLog, LogMessage: fmt.Sprintf("重试步骤 %s (第 %d 次)", step.Name, attempt)})
+		}
+		timeout := time.Duration(step.TimeoutMs) * time.Millisecond
+		if timeout <= 0 {
+			timeout = time.Duration(r.cfg.DefaultTimeoutMs) * time.Millisecond
+		}
+		ctx, cancel := context.WithTimeout(r.cdp.Context(), timeout)
+		res = actExec.ExecuteStep(ctx, step, eng)
+		cancel()
+		if res.Status == StatusSuccess || res.Status == StatusSkipped {
+			break
+		}
+		if attempt < retries {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return res
+}
+
+func maskIfNeeded(s string, visible int) string {
+	if len(s) <= visible*2 {
+		return strings.Repeat("*", len(s))
+	}
+	return s[:visible] + strings.Repeat("*", len(s)-visible*2) + s[len(s)-visible:]
 }
 
 func (r *Runner) emit(ev Event) {
