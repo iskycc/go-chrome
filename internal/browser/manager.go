@@ -11,6 +11,18 @@ import (
 	"go-chrome/internal/logx"
 )
 
+// ChromeStatus enumerates Chrome lifecycle states.
+type ChromeStatus int
+
+const (
+	ChromeNotInstalled ChromeStatus = iota
+	ChromeInstalled
+	ChromeDownloading
+	ChromeStarting
+	ChromeRunning
+	ChromeStartFailed
+)
+
 // Manager handles Chrome lifecycle.
 type Manager struct {
 	cfg      *config.ChromeConfig
@@ -277,4 +289,18 @@ func (m *Manager) Stop() error {
 	_, _ = m.proc.Wait()
 	m.proc = nil
 	return err
+}
+
+// Status returns the current Chrome installation/launch status.
+func (m *Manager) Status() ChromeStatus {
+	if m.proc != nil {
+		if port, err := ReadDevToolsPort(m.cfg.UserDataDir); err == nil && port > 0 {
+			return ChromeRunning
+		}
+		return ChromeStarting
+	}
+	if m.IsInstalled() {
+		return ChromeInstalled
+	}
+	return ChromeNotInstalled
 }
