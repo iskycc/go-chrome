@@ -8,25 +8,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go-chrome/internal/browser"
 	"go-chrome/internal/config"
 	"go-chrome/internal/flow"
 	"go-chrome/internal/template"
 )
 
+// HistorySaver persists run results.
+type HistorySaver interface {
+	Save(result *RunResult) error
+}
+
 // Runner executes flows via CDP.
 type Runner struct {
 	cfg          *config.RunnerConfig
 	browser      *browser.Manager
 	cdp          *browser.CDPClient
-	history      *HistoryStore
+	history      HistorySaver
 	events       chan Event
 	stopCh       chan struct{}
 	running      bool
 }
 
 // NewRunner creates a new runner.
-func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager, history *HistoryStore) *Runner {
+func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySaver) *Runner {
 	return &Runner{
 		cfg:     cfg,
 		browser: bm,
@@ -60,6 +66,7 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 	defer func() { r.running = false }()
 
 	result := &RunResult{
+		ID:        uuid.New().String(),
 		FlowID:    f.ID,
 		FlowName:  f.Name,
 		StartedAt: time.Now(),

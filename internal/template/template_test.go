@@ -175,3 +175,41 @@ func TestValidate(t *testing.T) {
 		t.Fatal("expected validate error")
 	}
 }
+
+type testEnvProvider struct {
+	data map[string]string
+}
+
+func (p *testEnvProvider) GetEnvValue(key string) (string, bool, bool) {
+	v, ok := p.data[key]
+	return v, ok, false
+}
+
+func TestEnvVariable(t *testing.T) {
+	eng := NewEngineWithEnv(&testEnvProvider{data: map[string]string{"BASE_URL": "https://test.com"}})
+	v, err := eng.Evaluate("${env:BASE_URL}/login")
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if v != "https://test.com/login" {
+		t.Errorf("expected https://test.com/login, got %s", v)
+	}
+}
+
+func TestEnvVariableMissing(t *testing.T) {
+	eng := NewEngineWithEnv(&testEnvProvider{data: map[string]string{}})
+	_, err := eng.Evaluate("${env:MISSING}")
+	if err == nil {
+		t.Fatal("expected error for missing env var")
+	}
+}
+
+func TestScanEnvVars(t *testing.T) {
+	keys := ScanEnvVars("${env:BASE_URL}/login ${env:USER} plain ${env:BASE_URL}")
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+	if keys[0] != "BASE_URL" || keys[1] != "USER" {
+		t.Errorf("unexpected keys: %v", keys)
+	}
+}

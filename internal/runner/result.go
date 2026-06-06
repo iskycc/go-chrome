@@ -31,6 +31,7 @@ type StepResult struct {
 
 // RunResult holds the outcome of a full flow run.
 type RunResult struct {
+	ID           string       `json:"id"`
 	FlowID       string       `json:"flowId"`
 	FlowName     string       `json:"flowName"`
 	StartedAt    time.Time    `json:"startedAt"`

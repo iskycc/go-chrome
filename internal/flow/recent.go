@@ -8,7 +8,7 @@ import (
 
 // RecentStore tracks recently opened flows.
 type RecentStore struct {
-	path   string
+	path    string
 	FlowIDs []string `json:"flowIds"`
 }
 

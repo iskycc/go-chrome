@@ -11,15 +11,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// EnvProvider supplies environment variable values.
+type EnvProvider interface {
+	GetEnvValue(key string) (value string, found bool, secret bool)
+}
+
 // Engine evaluates template strings.
 type Engine struct {
 	vars map[string]string
 	seq  int
+	env  EnvProvider
 }
 
 // NewEngine creates a new template engine.
 func NewEngine() *Engine {
 	return &Engine{vars: make(map[string]string), seq: 0}
+}
+
+// NewEngineWithEnv creates a template engine with environment variable support.
+func NewEngineWithEnv(env EnvProvider) *Engine {
+	return &Engine{vars: make(map[string]string), seq: 0, env: env}
 }
 
 // Evaluate replaces all placeholders in s with generated values.
@@ -113,6 +124,22 @@ func (e *Engine) evalPlaceholder(inner string) (string, error) {
 	// Enumeration: A|B|C
 	if strings.Contains(inner, "|") {
 		return e.evalEnum(inner)
+	}
+
+	// Environment variable: env:NAME
+	if strings.HasPrefix(inner, "env:") {
+		key := inner[4:]
+		if key == "" {
+			return "", fmt.Errorf("empty environment variable name")
+		}
+		if e.env == nil {
+			return "", fmt.Errorf("no environment selected")
+		}
+		val, found, _ := e.env.GetEnvValue(key)
+		if !found {
+			return "", fmt.Errorf("environment variable not found: %s", key)
+		}
+		return val, nil
 	}
 
 	// Named placeholders
@@ -273,4 +300,32 @@ func Validate(s string) error {
 	eng := NewEngine()
 	_, err := eng.Evaluate(s)
 	return err
+}
+
+// ScanEnvVars finds all ${env:NAME} references in a string.
+func ScanEnvVars(s string) []string {
+	var keys []string
+	seen := map[string]bool{}
+	i := 0
+	for i < len(s) {
+		idx := strings.Index(s[i:], "${env:")
+		if idx < 0 {
+			break
+		}
+		start := i + idx + 6 // after "${env:"
+		end := start
+		for end < len(s) && s[end] != '}' {
+			end++
+		}
+		if end >= len(s) {
+			break
+		}
+		key := s[start:end]
+		if key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+		i = end + 1
+	}
+	return keys
 }

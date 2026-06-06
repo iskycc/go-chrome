@@ -16,9 +16,11 @@ import (
 	appdirs "go-chrome/internal/app"
 	"go-chrome/internal/browser"
 	"go-chrome/internal/config"
+	"go-chrome/internal/db"
 	"go-chrome/internal/flow"
 	"go-chrome/internal/logx"
 	"go-chrome/internal/runner"
+	"go-chrome/internal/template"
 )
 
 type App struct {
@@ -26,12 +28,15 @@ type App struct {
 	mainWin     fyne.Window
 	cfg         *config.Config
 	dirs        *appdirs.Directories
-	flowStore   *flow.Store
+	flowStore   *db.FlowStore
 	recentStore *flow.RecentStore
 	browserMgr  *browser.Manager
 	runner      *runner.Runner
 	stepRunner  *runner.StepRunner
 	history     *runner.HistoryStore
+	envRepo     *db.EnvRepo
+	recentRepo  *db.RecentRepo
+	runRepo     *db.RunRepo
 
 	statusBar    *statusBar
 	flowLibrary  *flowLibraryPanel
@@ -46,6 +51,16 @@ type App struct {
 	chromeDone   chan struct{}
 
 	stepBtn *widget.Button
+}
+
+// runHistoryAdapter adapts db.RunRepo to runner.HistorySaver.
+type runHistoryAdapter struct {
+	repo  *db.RunRepo
+	envID string
+}
+
+func (a *runHistoryAdapter) Save(result *runner.RunResult) error {
+	return a.repo.Save(result, a.envID)
 }
 
 func New(cfg *config.Config, dirs *appdirs.Directories) *App {
@@ -65,7 +80,9 @@ func (a *App) Run() {
 		a.cfg.App.WindowWidth = int(size.Width)
 		a.cfg.App.WindowHeight = int(size.Height)
 		_ = config.Save(a.dirs.ConfigPath, a.cfg)
-		if a.recentStore != nil {
+		if a.recentRepo != nil && a.recentStore != nil {
+			_ = a.recentRepo.Save(a.recentStore.FlowIDs)
+		} else if a.recentStore != nil {
 			_ = a.recentStore.Save()
 		}
 		if a.chromeDone != nil {
@@ -82,21 +99,50 @@ func (a *App) Run() {
 
 func (a *App) initDeps() {
 	var err error
-	a.flowStore, err = flow.NewStore(a.dirs.FlowsDir)
+
+	// SQLite is the single source of truth
+	sqliteDB, err := db.Open(filepath.Join(a.dirs.DataDir, "go-chrome.db"))
+	if err != nil {
+		logx.Errorf("sqlite: %v", err)
+	}
+
+	a.flowStore, err = db.NewFlowStore(sqliteDB)
 	if err != nil {
 		logx.Errorf("flow store: %v", err)
 	}
-	a.recentStore, _ = flow.NewRecentStore(filepath.Join(a.dirs.DataDir, "recent-flows.json"))
+
+	// Recent flows backed by SQLite (fallback to JSON if SQLite fails)
+	if sqliteDB != nil {
+		r := db.NewRecentRepo(sqliteDB)
+		ids, _ := r.Load()
+		// We keep a simple in-memory recent list; persist on close
+		a.recentStore = &flow.RecentStore{FlowIDs: ids}
+		a.recentRepo = r
+	} else {
+		a.recentStore, _ = flow.NewRecentStore(filepath.Join(a.dirs.DataDir, "recent-flows.json"))
+	}
+
+	// Environment repository
+	a.envRepo = db.NewEnvRepo(sqliteDB)
+	_ = a.envRepo.CreateDefaultIfNone()
+
 	a.browserMgr = browser.NewManager(&a.cfg.Chrome)
 	a.browserMgr.LoadManifest() // best effort
 
-	historyDir := filepath.Join(a.dirs.DataDir, "run-history")
-	a.history, _ = runner.NewHistoryStore(historyDir)
+	// Run history backed by SQLite (fallback to JSON if SQLite fails)
+	var historySaver runner.HistorySaver
+	if sqliteDB != nil {
+		a.runRepo = db.NewRunRepo(sqliteDB)
+		historySaver = &runHistoryAdapter{repo: a.runRepo, envID: ""}
+	} else {
+		a.history, _ = runner.NewHistoryStore(filepath.Join(a.dirs.DataDir, "run-history"))
+		historySaver = a.history
+	}
 	if a.history != nil {
 		_ = a.history.Cleanup(a.cfg.App.LogRetentionDays)
 	}
 
-	a.runner = runner.NewRunner(&a.cfg.Runner, a.browserMgr, a.history)
+	a.runner = runner.NewRunner(&a.cfg.Runner, a.browserMgr, historySaver)
 	go a.handleRunnerEvents()
 }
 
@@ -122,6 +168,7 @@ func (a *App) buildUI() {
 
 	a.mainWin.SetContent(mainSplit)
 	a.refreshFlowList()
+	a.runPanel.refreshEnvironments()
 }
 
 func (a *App) markDirty() {
@@ -267,12 +314,46 @@ func (a *App) runCurrentFlow() {
 		dialog.ShowInformation("提示", "当前已有流程正在运行", a.mainWin)
 		return
 	}
+	// Check environment variables
+	if missing := a.checkEnvVars(); len(missing) > 0 {
+		dialog.ShowError(fmt.Errorf("运行前检查失败，缺少环境变量: %v", missing), a.mainWin)
+		return
+	}
 	a.runPanel.reset()
 	a.stepTable.clearStatuses()
 	go func() {
 		res := a.runner.RunFlow(a.currentFlow, 0)
 		a.runPanel.setSummary(res)
 	}()
+}
+
+func (a *App) checkEnvVars() []string {
+	if a.currentFlow == nil || a.envRepo == nil {
+		return nil
+	}
+	env, err := a.envRepo.GetActive()
+	if err != nil {
+		return []string{"未选择运行环境"}
+	}
+	vars, _ := a.envRepo.ListVars(env.ID)
+	varMap := make(map[string]bool)
+	for _, v := range vars {
+		varMap[v.Key] = true
+	}
+	var missing []string
+	seen := make(map[string]bool)
+	for _, s := range a.currentFlow.Steps {
+		keys := template.ScanEnvVars(s.Input.Text)
+		keys = append(keys, template.ScanEnvVars(s.Target.Value)...)
+		keys = append(keys, template.ScanEnvVars(s.Note)...)
+		for _, k := range keys {
+			if !varMap[k] && !seen[k] {
+				seen[k] = true
+				missing = append(missing, k)
+			}
+		}
+	}
+	return missing
 }
 
 func (a *App) onStepButton() {

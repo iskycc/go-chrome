@@ -21,6 +21,7 @@ type runPanel struct {
 	summary      *widget.Label
 	currentStep  *widget.Label
 	artifactBox  *fyne.Container
+	envSelect    *widget.Select
 }
 
 func newRunPanel(app *App) *runPanel {
@@ -53,17 +54,24 @@ func newRunPanel(app *App) *runPanel {
 		p.app.runner.Stop()
 	})
 
-	controls := container.NewHBox(startBtn, runBtn, stepBtn, stopBtn)
+	envBtn := widget.NewButton("管理环境", func() { p.app.showEnvManager() })
+	p.envSelect = widget.NewSelect([]string{"默认环境"}, nil)
+	p.envSelect.SetSelected("默认环境")
+
+	controls := container.NewHBox(startBtn, runBtn, stepBtn, stopBtn, envBtn)
 
 	rightPanel := container.NewVBox(
 		widget.NewLabelWithStyle("运行摘要", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		p.summary,
 	)
 
+	topBar := container.NewVBox(
+		container.NewBorder(nil, nil, p.progressText, controls, p.progressBar),
+		container.NewHBox(widget.NewLabel("当前环境："), p.envSelect),
+	)
+
 	p.widget = container.NewBorder(
-		container.NewVBox(
-			container.NewBorder(nil, nil, p.progressText, controls, p.progressBar),
-		),
+		topBar,
 		container.NewHBox(p.currentStep, p.artifactBox),
 		rightPanel, nil,
 		container.NewScroll(p.logsEntry),
@@ -126,5 +134,31 @@ func (p *runPanel) reset() {
 		p.progressText.SetText("就绪")
 		p.currentStep.SetText("")
 		p.clearArtifacts()
+	})
+}
+
+func (p *runPanel) refreshEnvironments() {
+	if p.app.envRepo == nil {
+		return
+	}
+	envs, err := p.app.envRepo.List()
+	if err != nil {
+		return
+	}
+	var names []string
+	var active string
+	for _, e := range envs {
+		names = append(names, e.Name)
+		if e.IsActive {
+			active = e.Name
+		}
+	}
+	if len(names) == 0 {
+		names = []string{"默认环境"}
+		active = "默认环境"
+	}
+	fyne.Do(func() {
+		p.envSelect.Options = names
+		p.envSelect.SetSelected(active)
 	})
 }

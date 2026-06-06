@@ -359,3 +359,446 @@ go vet ./internal/... ./cmd/go-chrome
 - 输入错误能在字段附近看到原因。
 - 运行失败后能快速定位失败步骤、错误原因、截图和 HTML 快照。
 - JSON schema 保持兼容，不因中文 UI 改动改变持久化结构。
+
+---
+
+## 新 Feature：环境变量输入引用、环境切换与 SQLite 持久化（破坏性改造）
+
+### 背景
+
+当前输入模板已经支持随机范围、枚举、UUID、日期、变量复用等运行期动态值，但还缺少“环境变量”能力。实际自动化流程通常需要在不同环境之间切换，例如开发环境、测试环境、预发环境、生产环境，每个环境的 URL、账号、密码、租户 ID、门店号、接口域名都不同。
+
+本 Feature 同时进行数据层破坏性改造：新版本直接废弃分散 JSON 持久化，改为 SQLite 作为唯一运行时存储。无需兼容旧 JSON 数据，无需自动迁移旧数据，无需保留旧 Store 行为。旧 JSON 只可作为手工导入来源，且不是启动兼容路径。
+
+新 Feature 目标：
+
+- 输入值、URL、XPath 或断言文本可以引用当前选中环境中的变量。
+- 用户可以维护多套环境配置，并在运行前切换当前环境。
+- 环境配置必须持久化保存。
+- 流程、步骤、环境配置、运行历史统一保存到 SQLite。
+- 破坏性删除 JSON 作为主存储的实现和假设。
+
+### 非目标
+
+- 不做旧版本 JSON 数据自动迁移。
+- 不保留 `data/flows/*.json` 作为运行时数据源。
+- 不保持 flow.Store 的 JSON 持久化语义。
+- 不要求旧运行历史自动导入 SQLite。
+- 不要求旧 `recent-flows.json` 自动导入 SQLite。
+- 不实现双写 JSON + SQLite。
+
+### 使用场景
+
+1. 同一套流程在测试环境和预发环境运行，只切换环境配置，不复制流程。
+2. 登录步骤引用环境账号密码，例如用户名来自 `${env:USERNAME}`，密码来自 `${env:PASSWORD}`。
+3. 打开网址步骤引用环境域名，例如 `${env:BASE_URL}/login`。
+4. 输入业务编号时组合环境变量和随机模板，例如 `${env:SHOP_PREFIX}-${number:6}`。
+5. 断言文本按环境不同而不同，例如 `${env:WELCOME_TEXT}`。
+
+### 模板语法设计
+
+新增环境变量占位符：
+
+```text
+${env:变量名}
+```
+
+示例：
+
+```text
+${env:BASE_URL}/login
+${env:USERNAME}
+${env:PASSWORD}
+SP-${env:SHOP_CODE}-${11000-11099}
+```
+
+变量命名规则：
+
+- 只允许字母、数字、下划线。
+- 推荐大写，例如 `BASE_URL`、`USERNAME`、`PASSWORD`。
+- 变量名不能为空。
+- 变量名区分大小写；UI 中默认转大写，降低误用。
+
+解析规则：
+
+- `${env:NAME}` 从当前选中环境读取变量 `NAME`。
+- 找不到当前环境时，流程运行失败，错误提示：`未选择运行环境`。
+- 找不到变量时，步骤失败，错误提示：`当前环境缺少变量 NAME`。
+- 环境变量解析必须和现有模板能力组合工作，例如 `${env:PREFIX}-${number:6}`。
+- 环境变量解析和随机模板解析在同一个模板引擎中完成，最终只生成一次输入值。
+- 敏感变量参与日志输出时必须按脱敏规则隐藏。
+
+### 环境配置模型
+
+Environment：
+
+```text
+id            string/uuid
+name          string        // 测试环境、预发环境、生产环境
+description   string
+is_active     bool          // 当前默认环境
+created_at    datetime
+updated_at    datetime
+```
+
+EnvironmentVariable：
+
+```text
+id             string/uuid
+environment_id string
+key            string       // BASE_URL、USERNAME、PASSWORD
+value          string
+is_secret      bool         // 是否敏感
+description    string
+created_at     datetime
+updated_at     datetime
+```
+
+敏感变量规则：
+
+- `is_secret=true` 时，UI 默认显示为 `******`。
+- 日志中永远不输出真实值。
+- 运行历史中只保存脱敏后的 generated input。
+- 初版可以明文存 SQLite，但字段和 Repository 要隔离，后续可替换为 Windows DPAPI 或主密码加密。
+
+### SQLite 持久化方案
+
+数据库文件：
+
+```text
+./data/go-chrome.db
+```
+
+SQLite 是唯一运行时持久化存储。新版本启动时只读取 SQLite。若数据库不存在，则创建空库和默认数据；不会扫描、导入或迁移旧 JSON。
+
+启动规则：
+
+1. 确保 `./data` 存在。
+2. 打开 `./data/go-chrome.db`。
+3. 执行 schema migration。
+4. 如果没有环境，创建默认环境 `默认环境`。
+5. 如果没有流程，显示空状态或引导创建示例流程。
+
+推荐表结构：
+
+```sql
+CREATE TABLE schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+CREATE TABLE app_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE flows (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE steps (
+  id TEXT PRIMARY KEY,
+  flow_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  type TEXT NOT NULL,
+  target_strategy TEXT NOT NULL DEFAULT 'xpath',
+  target_value TEXT NOT NULL DEFAULT '',
+  input_mode TEXT NOT NULL DEFAULT 'template',
+  input_text TEXT NOT NULL DEFAULT '',
+  input_mask_in_logs INTEGER NOT NULL DEFAULT 0,
+  wait_before_ms INTEGER NOT NULL DEFAULT 0,
+  wait_after_ms INTEGER NOT NULL DEFAULT 500,
+  timeout_ms INTEGER NOT NULL DEFAULT 10000,
+  on_error TEXT NOT NULL DEFAULT 'stop',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE
+);
+
+CREATE TABLE environments (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE environment_variables (
+  id TEXT PRIMARY KEY,
+  environment_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL DEFAULT '',
+  is_secret INTEGER NOT NULL DEFAULT 0,
+  description TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(environment_id, key),
+  FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE run_results (
+  id TEXT PRIMARY KEY,
+  flow_id TEXT NOT NULL,
+  environment_id TEXT,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  total_steps INTEGER NOT NULL DEFAULT 0,
+  success_count INTEGER NOT NULL DEFAULT 0,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  skipped_count INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  snapshot_dir TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY(flow_id) REFERENCES flows(id) ON DELETE CASCADE,
+  FOREIGN KEY(environment_id) REFERENCES environments(id) ON DELETE SET NULL
+);
+
+CREATE TABLE run_step_results (
+  id TEXT PRIMARY KEY,
+  run_result_id TEXT NOT NULL,
+  step_id TEXT,
+  step_order INTEGER NOT NULL,
+  step_name TEXT NOT NULL,
+  step_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT NOT NULL DEFAULT '',
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  screenshot_path TEXT NOT NULL DEFAULT '',
+  html_snapshot_path TEXT NOT NULL DEFAULT '',
+  generated_input_masked TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(run_result_id) REFERENCES run_results(id) ON DELETE CASCADE
+);
+```
+
+索引：
+
+```sql
+CREATE INDEX idx_steps_flow_order ON steps(flow_id, sort_order);
+CREATE INDEX idx_env_vars_environment ON environment_variables(environment_id);
+CREATE INDEX idx_run_results_flow_started ON run_results(flow_id, started_at DESC);
+CREATE INDEX idx_run_step_results_run_order ON run_step_results(run_result_id, step_order);
+```
+
+### 破坏性数据层改造要求
+
+必须删除或重写以下 JSON 主存储路径：
+
+- `internal/flow/store.go` 不再以 `data/flows/*.json` 作为主存储。
+- `internal/flow/recent.go` 不再使用 `recent-flows.json`，改用 `app_state` 或专表。
+- `internal/runner/history.go` 不再以 JSON 摘要作为运行历史主存储，改用 `run_results` 和 `run_step_results`。
+- UI 中所有流程列表、保存、删除、复制、最近流程、运行历史查询都必须走 SQLite repository。
+
+允许保留的 JSON 能力：
+
+- `导入流程 JSON`：用户手工选择 JSON 文件导入 SQLite。
+- `导出流程 JSON`：从 SQLite 读取流程并导出为 JSON。
+- `app-config.json` 可暂时保留用于 Chrome 下载源、窗口大小、主题等应用级配置；流程数据和环境数据不得再写入 JSON。
+
+删除兼容逻辑：
+
+- 不扫描 `data/flows` 自动导入。
+- 不生成 `legacy-json-backup`。
+- 不做 JSON 与 SQLite 双写。
+- 不保证旧 JSON 运行历史可见。
+
+### UI 设计
+
+新增环境选择区域，建议放在顶部状态栏或流程库上方：
+
+```text
+当前环境：[测试环境 v]  [管理环境]
+```
+
+点击“管理环境”打开环境管理面板：
+
+```text
+环境列表：
+- 默认环境
+- 测试环境
+- 预发环境
+- 生产环境
+
+环境变量表：
+变量名 | 变量值 | 敏感 | 说明
+BASE_URL | https://test.example.com | 否 | 测试环境域名
+USERNAME | test_user | 否 | 登录账号
+PASSWORD | ****** | 是 | 登录密码
+```
+
+环境管理功能：
+
+- 新建环境。
+- 复制环境。
+- 删除环境。
+- 重命名环境。
+- 设置为当前环境。
+- 新增变量。
+- 编辑变量。
+- 删除变量。
+- 标记变量为敏感。
+- 导入/导出环境配置。
+
+运行前要求：
+
+- 如果流程未引用 `${env:...}`，允许无环境变量运行，但仍要有当前环境记录。
+- 如果流程引用 `${env:...}`，运行前必须检查当前环境变量是否完整。
+- 缺失变量时阻止执行，并列出缺失变量名。
+
+### 模板引擎改造方案
+
+现有 `template.Engine` 新增环境变量上下文：
+
+```go
+type EnvProvider interface {
+    GetEnvValue(key string) (value string, found bool, secret bool)
+}
+
+type Engine struct {
+    vars map[string]string
+    seq int
+    env EnvProvider
+}
+```
+
+新增构造：
+
+```go
+func NewEngineWithEnv(env EnvProvider) *Engine
+```
+
+新增解析：
+
+```go
+${env:BASE_URL}
+```
+
+错误类型：
+
+- `ErrEnvironmentNotSelected`
+- `ErrEnvironmentVariableNotFound`
+- `ErrInvalidEnvironmentVariableName`
+
+日志脱敏：
+
+- 模板解析结果要返回真实值和脱敏值。
+- 如果任一参与变量是 secret，则整段 generated input 默认脱敏。
+- `StepResult.GeneratedInput` 不再保存真实值，改为 `GeneratedInputMasked`。
+
+### 运行器改造方案
+
+Runner 启动时需要知道当前环境：
+
+```go
+type RunOptions struct {
+    StartStep int
+    EnvironmentID string
+}
+```
+
+破坏性修改接口：
+
+```go
+RunFlow(f *flow.Flow, opts RunOptions)
+```
+
+不保留旧接口：
+
+```go
+RunFlow(f *flow.Flow, startStep int)
+```
+
+运行前校验：
+
+- 扫描流程步骤中的 `${env:...}` 引用。
+- 获取当前环境变量集合。
+- 如果缺失变量，运行前失败并在 UI 显示缺失列表。
+- 将 environment_id 写入 run_results。
+
+### 实施阶段
+
+#### 阶段 1：SQLite 基础设施
+
+- [ ] 引入 SQLite driver。
+- [ ] 新增 `internal/db` 包。
+- [ ] 创建 `./data/go-chrome.db`。
+- [ ] 实现 migration 表和迁移执行器。
+- [ ] 建立 flows、steps、environments、environment_variables、run_results、run_step_results 表。
+- [ ] 创建默认环境。
+- [ ] 单元测试：空库初始化。
+- [ ] 单元测试：重复 migration 不报错。
+
+#### 阶段 2：破坏性替换流程存储
+
+- [ ] 删除 JSON flow.Store 主存储实现。
+- [ ] 实现 SQLite FlowRepository。
+- [ ] 实现 SQLite StepRepository。
+- [ ] 流程保存、读取、删除、复制全部改走 SQLite。
+- [ ] 最近流程改写到 SQLite。
+- [ ] 保留手工 JSON 导入导出。
+- [ ] 单元测试：流程保存、读取、删除、复制。
+- [ ] 单元测试：步骤排序持久化。
+
+#### 阶段 3：环境配置能力
+
+- [ ] 定义 Environment 和 EnvironmentVariable 模型。
+- [ ] 实现 EnvironmentRepository。
+- [ ] 实现当前环境选择和持久化。
+- [ ] 实现环境复制、删除、变量增删改查。
+- [ ] 单元测试：环境切换后持久化。
+- [ ] 单元测试：敏感变量不在日志中明文出现。
+
+#### 阶段 4：模板引擎支持 env
+
+- [ ] `template.Engine` 支持 EnvProvider。
+- [ ] 支持 `${env:NAME}`。
+- [ ] 支持 `${env:NAME}` 和随机模板组合。
+- [ ] 运行前扫描缺失变量。
+- [ ] 单元测试：正常引用。
+- [ ] 单元测试：缺失环境。
+- [ ] 单元测试：缺失变量。
+- [ ] 单元测试：secret 变量触发脱敏。
+
+#### 阶段 5：UI 环境管理
+
+- [ ] 顶部状态栏增加当前环境下拉框。
+- [ ] 增加环境管理弹窗或面板。
+- [ ] 增加环境变量表格。
+- [ ] 增加敏感变量显示/隐藏切换。
+- [ ] 增加导入/导出环境配置。
+- [ ] 运行前缺失变量提示。
+
+#### 阶段 6：运行历史 SQLite 化
+
+- [ ] 将 RunResult 写入 SQLite。
+- [ ] 将 StepResult 写入 SQLite。
+- [ ] 运行历史列表从 SQLite 查询。
+- [ ] 截图和 HTML 文件仍保留文件系统路径。
+- [ ] 支持按流程、环境、状态筛选运行历史。
+
+### 验收标准
+
+- 删除 `data/flows` 后程序仍能正常运行，因为主存储为 `./data/go-chrome.db`。
+- 新装启动会创建 `./data/go-chrome.db` 和默认环境。
+- 用户可以创建至少两套环境，例如 `测试环境` 和 `预发环境`。
+- 用户可以在 UI 中切换当前环境，关闭程序后再次打开仍保持上次选择。
+- 输入值支持 `${env:USERNAME}`。
+- 打开网址支持 `${env:BASE_URL}/login`。
+- `${env:SHOP_CODE}-${11000-11099}` 能正常组合环境变量和随机范围。
+- 缺失环境变量时，运行前阻止执行，并明确列出缺失变量名。
+- 敏感变量在 UI 和日志中默认脱敏。
+- 流程、步骤、环境配置、运行历史保存到 `./data/go-chrome.db`。
+- 程序不会自动扫描旧 JSON 流程目录。
+- 仍可手工导入和导出单个流程 JSON。
+- SQLite migration 可重复执行且不破坏已有 SQLite 数据。
