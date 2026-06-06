@@ -37,7 +37,7 @@ func validateStep(idx int, s Step) error {
 	default:
 		return fmt.Errorf("step %d: unknown type %s", idx, s.Type)
 	}
-	needsTarget := needsElement(s.Type)
+	needsTarget := NeedsElement(s.Type)
 	if needsTarget && strings.TrimSpace(s.Target.Value) == "" {
 		return fmt.Errorf("step %d (%s): target value is required", idx, s.Name)
 	}
@@ -53,7 +53,7 @@ func validateStep(idx int, s Step) error {
 	return nil
 }
 
-func needsElement(t StepType) bool {
+func NeedsElement(t StepType) bool {
 	switch t {
 	case StepClick, StepInput, StepClearAndInput, StepWaitPresent,
 		StepWaitVisible, StepGetText, StepAssertExists, StepAssertText:
