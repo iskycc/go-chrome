@@ -127,7 +127,7 @@ func NewExampleLoginFlow() *Flow {
 		NewStep("断言欢迎文本", StepAssertExists),
 		NewStep("页面截图", StepScreenshot),
 	}
-	f.Steps[0].Target = Target{Strategy: TargetXPath, Value: "https://example.com/login"}
+	f.Steps[0].Target = Target{Strategy: TargetXPath, Value: "http://localhost:18080"}
 	f.Steps[1].Target = Target{Strategy: TargetXPath, Value: "//input[@id='username']"}
 	f.Steps[1].Input = Input{Mode: InputTemplate, Text: "${var:user=SP${11000-11099}}"}
 	f.Steps[2].Target = Target{Strategy: TargetXPath, Value: "//input[@id='password']"}
