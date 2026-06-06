@@ -35,7 +35,7 @@ func (a *App) buildEmptyState() fyne.CanvasObject {
 	})
 
 	return container.NewCenter(container.NewVBox(
-		theme.DocumentIcon(),
+		widget.NewIcon(theme.DocumentIcon()),
 		title,
 		hint,
 		container.NewHBox(newBtn, importBtn),
