@@ -1,6 +1,7 @@
 # Build outputs
 /go-chrome
 /go-chrome.exe
+/test-server
 /dist/
 /build/
 /.tools/
