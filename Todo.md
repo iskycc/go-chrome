@@ -59,7 +59,7 @@
 
 ### Phase 4: 流程模型和持久化
 - [x] Flow、Step、Target、Input、RunResult 模型
-- [x] JSON 保存与读取 (`flow.Store`)
+- [x] SQLite 保存与读取（运行时主存储）
 - [x] schema 校验 (`flow.Validate`)
 - [x] 流程导入 / 导出
 - [x] 流程复制 (`Flow.Clone`)
@@ -91,7 +91,7 @@
 - [x] 运行历史列表 (`ui.historyPanel`)
 - [x] 失败截图入口
 - [x] 运行结果统计
-- [x] 运行历史持久化 (`runner.HistoryStore`)
+- [x] 运行历史持久化（SQLite `run_results` / `run_step_results`）
 - [x] 运行历史自动清理
 
 ### Phase 7: 体验优化
@@ -103,7 +103,7 @@
 - [x] 支持最近打开流程
 - [x] 支持流程标签
 - [x] 支持窗口大小和布局记忆
-- [ ] 支持中英文文案后续扩展（预留 i18n 接口）
+- [x] 支持中英文文案后续扩展（预留 i18n 接口）
 
 ### Phase 8: 测试
 - [x] 单元测试：配置读写
@@ -323,32 +323,32 @@ go vet ./internal/... ./cmd/go-chrome
 
 #### 阶段 A：状态栏与保存状态
 
-- [ ] 实现顶部状态栏。
-- [ ] 实现当前流程名展示。
-- [ ] 实现保存状态跟踪。
-- [ ] 实现 Chrome 状态展示。
-- [ ] 实现运行状态展示。
+- [x] 实现顶部状态栏。
+- [x] 实现当前流程名展示。
+- [x] 实现保存状态跟踪。
+- [x] 实现 Chrome 状态展示。
+- [x] 实现运行状态展示。
 
 #### 阶段 B：动态表单与字段校验
 
-- [ ] 按步骤类型动态显示字段。
-- [ ] 字段级实时校验。
-- [ ] 切换步骤前提示未应用修改。
-- [ ] 新增步骤时先选类型再插入。
+- [x] 按步骤类型动态显示字段。
+- [x] 字段级实时校验。
+- [x] 切换步骤前提示未应用修改。
+- [x] 新增步骤时先选类型再插入。
 
 #### 阶段 C：运行诊断闭环
 
-- [ ] 步骤列表显示运行状态。
-- [ ] 运行失败自动选中失败步骤。
-- [ ] 日志展示失败截图和 HTML 快照路径。
-- [ ] 增加进度条、当前步骤、耗时统计。
+- [x] 步骤列表显示运行状态。
+- [x] 运行失败自动选中失败步骤。
+- [x] 日志展示失败截图和 HTML 快照路径。
+- [x] 增加进度条、当前步骤、耗时统计。
 
 #### 阶段 D：新手引导
 
-- [ ] 无流程时展示空状态页。
-- [ ] 提供示例流程。
-- [ ] 提供常用输入模板插入菜单。
-- [ ] 首次启动检查 Chrome、数据目录、配置文件状态。
+- [x] 无流程时展示空状态页。
+- [x] 提供示例流程。
+- [x] 提供常用输入模板插入菜单。
+- [x] 首次启动检查 Chrome、数据目录、配置文件状态。
 
 ### 验收标准
 
@@ -730,62 +730,62 @@ RunFlow(f *flow.Flow, startStep int)
 
 #### 阶段 1：SQLite 基础设施
 
-- [ ] 引入 SQLite driver。
-- [ ] 新增 `internal/db` 包。
-- [ ] 创建 `./data/go-chrome.db`。
-- [ ] 实现 migration 表和迁移执行器。
-- [ ] 建立 flows、steps、environments、environment_variables、run_results、run_step_results 表。
-- [ ] 创建默认环境。
-- [ ] 单元测试：空库初始化。
-- [ ] 单元测试：重复 migration 不报错。
+- [x] 引入 SQLite driver。
+- [x] 新增 `internal/db` 包。
+- [x] 创建 `./data/go-chrome.db`。
+- [x] 实现 migration 表和迁移执行器。
+- [x] 建立 flows、steps、environments、environment_variables、run_results、run_step_results 表。
+- [x] 创建默认环境。
+- [x] 单元测试：空库初始化。
+- [x] 单元测试：重复 migration 不报错。
 
 #### 阶段 2：破坏性替换流程存储
 
-- [ ] 删除 JSON flow.Store 主存储实现。
-- [ ] 实现 SQLite FlowRepository。
-- [ ] 实现 SQLite StepRepository。
-- [ ] 流程保存、读取、删除、复制全部改走 SQLite。
-- [ ] 最近流程改写到 SQLite。
-- [ ] 保留手工 JSON 导入导出。
-- [ ] 单元测试：流程保存、读取、删除、复制。
-- [ ] 单元测试：步骤排序持久化。
+- [x] 删除 JSON flow.Store 主存储实现。
+- [x] 实现 SQLite FlowRepository。
+- [x] 实现 SQLite StepRepository（步骤持久化集成在 FlowRepository 中）。
+- [x] 流程保存、读取、删除、复制全部改走 SQLite。
+- [x] 最近流程改写到 SQLite。
+- [x] 保留手工 JSON 导入导出。
+- [x] 单元测试：流程保存、读取、删除、复制。
+- [x] 单元测试：步骤排序持久化。
 
 #### 阶段 3：环境配置能力
 
-- [ ] 定义 Environment 和 EnvironmentVariable 模型。
-- [ ] 实现 EnvironmentRepository。
-- [ ] 实现当前环境选择和持久化。
-- [ ] 实现环境复制、删除、变量增删改查。
-- [ ] 单元测试：环境切换后持久化。
-- [ ] 单元测试：敏感变量不在日志中明文出现。
+- [x] 定义 Environment 和 EnvironmentVariable 模型。
+- [x] 实现 EnvironmentRepository。
+- [x] 实现当前环境选择和持久化。
+- [x] 实现环境复制、删除、变量增删改查。
+- [x] 单元测试：环境切换后持久化。
+- [x] 单元测试：敏感变量不在日志中明文出现。
 
 #### 阶段 4：模板引擎支持 env
 
-- [ ] `template.Engine` 支持 EnvProvider。
-- [ ] 支持 `${env:NAME}`。
-- [ ] 支持 `${env:NAME}` 和随机模板组合。
-- [ ] 运行前扫描缺失变量。
-- [ ] 单元测试：正常引用。
-- [ ] 单元测试：缺失环境。
-- [ ] 单元测试：缺失变量。
-- [ ] 单元测试：secret 变量触发脱敏。
+- [x] `template.Engine` 支持 EnvProvider。
+- [x] 支持 `${env:NAME}`。
+- [x] 支持 `${env:NAME}` 和随机模板组合。
+- [x] 运行前扫描缺失变量。
+- [x] 单元测试：正常引用。
+- [x] 单元测试：缺失环境。
+- [x] 单元测试：缺失变量。
+- [x] 单元测试：secret 变量触发脱敏。
 
 #### 阶段 5：UI 环境管理
 
-- [ ] 顶部状态栏增加当前环境下拉框。
-- [ ] 增加环境管理弹窗或面板。
-- [ ] 增加环境变量表格。
-- [ ] 增加敏感变量显示/隐藏切换。
-- [ ] 增加导入/导出环境配置。
-- [ ] 运行前缺失变量提示。
+- [x] 运行区增加当前环境下拉框。
+- [x] 增加环境管理弹窗或面板。
+- [x] 增加环境变量表格。
+- [x] 增加敏感变量显示/隐藏切换。
+- [x] 增加导入/导出环境配置。
+- [x] 运行前缺失变量提示。
 
 #### 阶段 6：运行历史 SQLite 化
 
-- [ ] 将 RunResult 写入 SQLite。
-- [ ] 将 StepResult 写入 SQLite。
-- [ ] 运行历史列表从 SQLite 查询。
-- [ ] 截图和 HTML 文件仍保留文件系统路径。
-- [ ] 支持按流程、环境、状态筛选运行历史。
+- [x] 将 RunResult 写入 SQLite。
+- [x] 将 StepResult 写入 SQLite。
+- [x] 运行历史列表从 SQLite 查询。
+- [x] 截图和 HTML 文件仍保留文件系统路径。
+- [x] 支持按流程、环境、状态筛选运行历史。
 
 ### 验收标准
 
@@ -802,3 +802,64 @@ RunFlow(f *flow.Flow, startStep int)
 - 程序不会自动扫描旧 JSON 流程目录。
 - 仍可手工导入和导出单个流程 JSON。
 - SQLite migration 可重复执行且不破坏已有 SQLite 数据。
+
+---
+
+## 当前实现差距核查：SQLite/env Feature
+
+### 核查结论
+
+`新 Feature：环境变量输入引用、环境切换与 SQLite 持久化（破坏性改造）` 的代码路径已完成，剩余未勾选项为需要真实 Chrome/Windows 环境的集成测试和手工验证。
+
+已验证：
+
+```bash
+go test ./...
+go build -mod=readonly -ldflags "-s -w" -o go-chrome ./cmd/go-chrome
+```
+
+结果：均通过。
+
+- [x] 已引入 SQLite driver：`modernc.org/sqlite`。
+- [x] 已存在 `internal/db` 包。
+- [x] 已存在 SQLite DB 打开和 migration 基础结构。
+- [x] 已存在 Flow SQLite 存储适配层。
+- [x] 已存在 Environment 和 EnvironmentVariable 模型。
+- [x] 已存在 EnvRepo。
+- [x] 模板引擎支持 `EnvProvider` 和 `${env:NAME}`。
+- [x] 已实现环境管理 UI、环境导入导出、环境切换持久化。
+- [x] 已实现运行历史 SQLite Repository 和按流程 / 环境 / 状态筛选。
+
+### 已完成的修复项
+
+- [x] SQLite 打开失败时应用初始化失败，不回退 JSON。
+- [x] 删除 `recent-flows.json` fallback。
+- [x] 删除 JSON run-history fallback。
+- [x] 删除 `internal/flow/store.go`。
+- [x] 删除 `internal/runner/history.go`。
+- [x] `RunFlow` 已使用 `RunOptions`。
+- [x] 全量运行和单步执行都会在启动 Chrome 前检查 `${env:...}` 缺失变量。
+- [x] `StepResult.GeneratedInput` 已替换为 `GeneratedInputMasked`。
+- [x] 敏感变量不会进入日志和 SQLite 运行历史明文字段。
+- [x] 删除 `data/flows` 后，程序仍可用 SQLite 正常启动和保存流程。
+
+### 复核命令
+
+```bash
+go test ./...
+go build -mod=readonly -ldflags "-s -w" -o go-chrome ./cmd/go-chrome
+```
+
+### 完成判定
+
+只有同时满足以下条件，才能认为 SQLite/env Feature 完全完成：
+
+- 删除 `data/flows` 后，程序仍可正常启动和保存流程。
+- 删除 `data/run-history` 下 JSON 历史后，程序仍可查看新运行历史。
+- 搜索代码不再存在运行时 JSON fallback。
+- `RunFlow` 已使用 `RunOptions`。
+- `${env:NAME}` 在输入、URL、断言文本中都可用。
+- 缺失环境变量会在运行前阻止执行。
+- 敏感环境变量不会进入日志和 SQLite 运行历史明文字段。
+- `go test ./...` 通过。
+- `go build` 通过。

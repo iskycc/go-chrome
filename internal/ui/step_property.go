@@ -17,18 +17,19 @@ type stepPropertyPanel struct {
 	app       *App
 	widget    fyne.CanvasObject
 	step      *flow.Step
+	stepIndex int
 	onApplied func()
 
-	form        *widget.Form
-	nameEntry   *widget.Entry
-	nameErr     *widget.Label
-	typeSelect  *widget.Select
-	targetEntry *widget.Entry
-	targetErr   *widget.Label
-	inputEntry  *widget.Entry
-	inputErr    *widget.Label
-	expectedEntry *widget.Entry
-	expectedErr   *widget.Label
+	form            *widget.Form
+	nameEntry       *widget.Entry
+	nameErr         *widget.Label
+	typeSelect      *widget.Select
+	targetEntry     *widget.Entry
+	targetErr       *widget.Label
+	inputEntry      *widget.Entry
+	inputErr        *widget.Label
+	expectedEntry   *widget.Entry
+	expectedErr     *widget.Label
 	waitBeforeEntry *widget.Entry
 	waitBeforeErr   *widget.Label
 	waitAfterEntry  *widget.Entry
@@ -55,7 +56,7 @@ type stepPropertyPanel struct {
 }
 
 func newStepPropertyPanel(app *App, onApplied func()) *stepPropertyPanel {
-	p := &stepPropertyPanel{app: app, onApplied: onApplied}
+	p := &stepPropertyPanel{app: app, onApplied: onApplied, stepIndex: -1}
 	p.initWidgets()
 	p.initForm()
 	p.widget = container.NewBorder(
@@ -127,6 +128,38 @@ func (p *stepPropertyPanel) initWidgets() {
 }
 
 func (p *stepPropertyPanel) initForm() {
+	templateSnippets := map[string]string{
+		"数字 6 位":        "${number:6}",
+		"字母 8 位":        "${alpha:8}",
+		"字母数字 10 位":     "${alnum:10}",
+		"UUID":          "${uuid}",
+		"日期 yyyyMMdd":   "${date:yyyyMMdd}",
+		"时间戳":           "${timestamp}",
+		"门店号范围":         "SP${11000-11099}",
+		"环境变量 BASE_URL": "${env:BASE_URL}",
+		"环境变量 USERNAME": "${env:USERNAME}",
+		"环境变量 PASSWORD": "${env:PASSWORD}",
+	}
+	insertTemplateSelect := widget.NewSelect([]string{
+		"数字 6 位",
+		"字母 8 位",
+		"字母数字 10 位",
+		"UUID",
+		"日期 yyyyMMdd",
+		"时间戳",
+		"门店号范围",
+		"环境变量 BASE_URL",
+		"环境变量 USERNAME",
+		"环境变量 PASSWORD",
+	}, func(label string) {
+		snippet := templateSnippets[label]
+		if snippet == "" {
+			return
+		}
+		p.inputEntry.SetText(p.inputEntry.Text + snippet)
+	})
+	insertTemplateSelect.PlaceHolder = "插入模板"
+
 	previewBtn := widget.NewButton("预览", func() {
 		if p.inputEntry.Text != "" {
 			samples := template.Preview(p.inputEntry.Text, 3)
@@ -143,7 +176,7 @@ func (p *stepPropertyPanel) initForm() {
 
 	p.nameItem = widget.NewFormItem("步骤名称", container.NewVBox(p.nameEntry, p.nameErr))
 	p.targetItem = widget.NewFormItem("目标", container.NewVBox(p.targetEntry, p.targetErr))
-	p.inputItem = widget.NewFormItem("输入内容", container.NewVBox(p.inputEntry, container.NewHBox(previewBtn, validateBtn), p.previewLabel, p.inputErr))
+	p.inputItem = widget.NewFormItem("输入内容", container.NewVBox(p.inputEntry, container.NewHBox(insertTemplateSelect, previewBtn, validateBtn), p.previewLabel, p.inputErr))
 	p.expectedItem = widget.NewFormItem("期望文本", container.NewVBox(p.expectedEntry, p.expectedErr))
 	p.waitBeforeItem = widget.NewFormItem("执行前等待(ms)", container.NewVBox(p.waitBeforeEntry, p.waitBeforeErr))
 	p.waitAfterItem = widget.NewFormItem("执行后等待(ms)", container.NewVBox(p.waitAfterEntry, p.waitAfterErr))
@@ -212,12 +245,17 @@ func (p *stepPropertyPanel) rebuildForm() {
 
 func (p *stepPropertyPanel) loadStep(s *flow.Step, idx int, total int) {
 	p.step = s
+	p.stepIndex = idx
 	p.clearErrors()
 	p.nameEntry.SetText(s.Name)
 	p.typeSelect.SetSelected(stepTypeLabel(s.Type))
 	p.targetEntry.SetText(s.Target.Value)
 	p.inputEntry.SetText(s.Input.Text)
-	p.expectedEntry.SetText(s.Note)
+	if s.Input.Text != "" {
+		p.expectedEntry.SetText(s.Input.Text)
+	} else {
+		p.expectedEntry.SetText(s.Note)
+	}
 	p.waitBeforeEntry.SetText(strconv.Itoa(s.WaitBeforeMs))
 	p.waitAfterEntry.SetText(strconv.Itoa(s.WaitAfterMs))
 	p.timeoutEntry.SetText(strconv.Itoa(s.TimeoutMs))
@@ -250,7 +288,7 @@ func (p *stepPropertyPanel) validate() bool {
 	}
 	if p.app.currentFlow != nil {
 		for i, s := range p.app.currentFlow.Steps {
-			if s.Name == p.nameEntry.Text && i != p.app.stepTable.selectedIndex() {
+			if s.Name == p.nameEntry.Text && i != p.stepIndex {
 				p.nameErr.SetText("步骤名称已存在")
 				p.nameErr.Show()
 				ok = false
@@ -266,7 +304,7 @@ func (p *stepPropertyPanel) validate() bool {
 			p.targetErr.SetText("网址不能为空")
 			p.targetErr.Show()
 			ok = false
-		} else if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+		} else if !strings.Contains(v, "${") && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 			p.targetErr.SetText("网址必须以 http:// 或 https:// 开头")
 			p.targetErr.Show()
 			ok = false
@@ -324,11 +362,14 @@ func (p *stepPropertyPanel) apply() {
 
 	p.step.Name = p.nameEntry.Text
 	p.step.Type = stepTypeFromLabel(p.typeSelect.Selected)
-	p.step.Target = flow.Target{Strategy: flow.TargetXPath, Value: p.targetEntry.Text}
-	p.step.Input = flow.Input{
-		Mode:       flow.InputTemplate,
-		Text:       p.inputEntry.Text,
-		MaskInLogs: p.maskLogsCheck.Checked,
+	p.step.Target = flow.Target{Strategy: flow.TargetXPath, Value: ""}
+	if p.step.Type != flow.StepWaitFixed && p.step.Type != flow.StepScreenshot {
+		p.step.Target.Value = p.targetEntry.Text
+	}
+	p.step.Input = flow.Input{Mode: flow.InputTemplate}
+	if p.step.Type == flow.StepInput || p.step.Type == flow.StepClearAndInput {
+		p.step.Input.Text = p.inputEntry.Text
+		p.step.Input.MaskInLogs = p.maskLogsCheck.Checked
 	}
 	p.step.WaitBeforeMs, _ = strconv.Atoi(p.waitBeforeEntry.Text)
 	p.step.WaitAfterMs, _ = strconv.Atoi(p.waitAfterEntry.Text)
@@ -338,7 +379,8 @@ func (p *stepPropertyPanel) apply() {
 	p.step.Note = p.noteEntry.Text
 
 	if p.step.Type == flow.StepAssertText {
-		p.step.Note = p.expectedEntry.Text
+		p.step.Input.Text = p.expectedEntry.Text
+		p.step.Note = p.noteEntry.Text
 	}
 
 	p.app.currentFlow.Steps = p.app.stepTable.stepsData
@@ -350,6 +392,7 @@ func (p *stepPropertyPanel) apply() {
 
 func (p *stepPropertyPanel) clear() {
 	p.step = nil
+	p.stepIndex = -1
 	p.nameEntry.SetText("")
 	p.typeSelect.SetSelected("")
 	p.targetEntry.SetText("")
@@ -366,4 +409,51 @@ func (p *stepPropertyPanel) clear() {
 	p.clearErrors()
 	p.form.Items = nil
 	p.form.Refresh()
+}
+
+func (p *stepPropertyPanel) hasUnappliedChanges() bool {
+	if p.step == nil || p.typeSelect.Selected == "" {
+		return false
+	}
+	if p.nameEntry.Text != p.step.Name {
+		return true
+	}
+	if stepTypeFromLabel(p.typeSelect.Selected) != p.step.Type {
+		return true
+	}
+	t := p.step.Type
+	if t != flow.StepWaitFixed && t != flow.StepScreenshot && p.targetEntry.Text != p.step.Target.Value {
+		return true
+	}
+	if (t == flow.StepInput || t == flow.StepClearAndInput) && p.inputEntry.Text != p.step.Input.Text {
+		return true
+	}
+	if t == flow.StepAssertText {
+		expected := p.step.Input.Text
+		if expected == "" {
+			expected = p.step.Note
+		}
+		if p.expectedEntry.Text != expected {
+			return true
+		}
+	}
+	if p.waitBeforeEntry.Text != strconv.Itoa(p.step.WaitBeforeMs) {
+		return true
+	}
+	if p.waitAfterEntry.Text != strconv.Itoa(p.step.WaitAfterMs) {
+		return true
+	}
+	if p.timeoutEntry.Text != strconv.Itoa(p.step.TimeoutMs) {
+		return true
+	}
+	if errorPolicyFromLabel(p.onErrorSelect.Selected) != p.step.OnError {
+		return true
+	}
+	if p.enabledCheck.Checked != p.step.Enabled {
+		return true
+	}
+	if (t == flow.StepInput || t == flow.StepClearAndInput) && p.maskLogsCheck.Checked != p.step.Input.MaskInLogs {
+		return true
+	}
+	return p.noteEntry.Text != p.step.Note
 }

@@ -18,7 +18,6 @@ import (
 	"go-chrome/internal/config"
 	"go-chrome/internal/db"
 	"go-chrome/internal/flow"
-	"go-chrome/internal/logx"
 	"go-chrome/internal/runner"
 	"go-chrome/internal/template"
 )
@@ -33,7 +32,6 @@ type App struct {
 	browserMgr  *browser.Manager
 	runner      *runner.Runner
 	stepRunner  *runner.StepRunner
-	history     *runner.HistoryStore
 	envRepo     *db.EnvRepo
 	recentRepo  *db.RecentRepo
 	runRepo     *db.RunRepo
@@ -44,7 +42,12 @@ type App struct {
 	stepTable    *stepTablePanel
 	stepProperty *stepPropertyPanel
 	runPanel     *runPanel
+	historyPanel *historyPanel
+	workspace    *fyne.Container
+	editorArea   fyne.CanvasObject
+	emptyState   fyne.CanvasObject
 	currentFlow  *flow.Flow
+	runStatuses  []runner.Status
 
 	dirty        bool
 	chromeTicker *time.Ticker
@@ -55,12 +58,11 @@ type App struct {
 
 // runHistoryAdapter adapts db.RunRepo to runner.HistorySaver.
 type runHistoryAdapter struct {
-	repo  *db.RunRepo
-	envID string
+	repo *db.RunRepo
 }
 
 func (a *runHistoryAdapter) Save(result *runner.RunResult) error {
-	return a.repo.Save(result, a.envID)
+	return a.repo.Save(result, result.EnvironmentID)
 }
 
 func New(cfg *config.Config, dirs *appdirs.Directories) *App {
@@ -82,68 +84,57 @@ func (a *App) Run() {
 		_ = config.Save(a.dirs.ConfigPath, a.cfg)
 		if a.recentRepo != nil && a.recentStore != nil {
 			_ = a.recentRepo.Save(a.recentStore.FlowIDs)
-		} else if a.recentStore != nil {
-			_ = a.recentStore.Save()
 		}
 		if a.chromeDone != nil {
 			close(a.chromeDone)
 		}
 	})
 
-	a.initDeps()
+	if err := a.initDeps(); err != nil {
+		dialog.ShowError(fmt.Errorf("应用初始化失败: %w", err), a.mainWin)
+		a.mainWin.ShowAndRun()
+		return
+	}
 	a.buildUI()
 	a.firstRunCheck()
 	a.startChromeTicker()
 	a.mainWin.ShowAndRun()
 }
 
-func (a *App) initDeps() {
-	var err error
-
+func (a *App) initDeps() error {
 	// SQLite is the single source of truth
 	sqliteDB, err := db.Open(filepath.Join(a.dirs.DataDir, "go-chrome.db"))
 	if err != nil {
-		logx.Errorf("sqlite: %v", err)
+		return fmt.Errorf("无法打开数据库: %w", err)
 	}
 
 	a.flowStore, err = db.NewFlowStore(sqliteDB)
 	if err != nil {
-		logx.Errorf("flow store: %v", err)
+		return fmt.Errorf("初始化流程存储失败: %w", err)
 	}
 
-	// Recent flows backed by SQLite (fallback to JSON if SQLite fails)
-	if sqliteDB != nil {
-		r := db.NewRecentRepo(sqliteDB)
-		ids, _ := r.Load()
-		// We keep a simple in-memory recent list; persist on close
-		a.recentStore = &flow.RecentStore{FlowIDs: ids}
-		a.recentRepo = r
-	} else {
-		a.recentStore, _ = flow.NewRecentStore(filepath.Join(a.dirs.DataDir, "recent-flows.json"))
-	}
+	// Recent flows backed by SQLite
+	r := db.NewRecentRepo(sqliteDB)
+	ids, _ := r.Load()
+	a.recentStore = &flow.RecentStore{FlowIDs: ids}
+	a.recentRepo = r
 
 	// Environment repository
 	a.envRepo = db.NewEnvRepo(sqliteDB)
-	_ = a.envRepo.CreateDefaultIfNone()
+	if err := a.envRepo.CreateDefaultIfNone(); err != nil {
+		return fmt.Errorf("初始化环境仓库失败: %w", err)
+	}
 
 	a.browserMgr = browser.NewManager(&a.cfg.Chrome)
 	a.browserMgr.LoadManifest() // best effort
 
-	// Run history backed by SQLite (fallback to JSON if SQLite fails)
-	var historySaver runner.HistorySaver
-	if sqliteDB != nil {
-		a.runRepo = db.NewRunRepo(sqliteDB)
-		historySaver = &runHistoryAdapter{repo: a.runRepo, envID: ""}
-	} else {
-		a.history, _ = runner.NewHistoryStore(filepath.Join(a.dirs.DataDir, "run-history"))
-		historySaver = a.history
-	}
-	if a.history != nil {
-		_ = a.history.Cleanup(a.cfg.App.LogRetentionDays)
-	}
+	// Run history backed by SQLite
+	a.runRepo = db.NewRunRepo(sqliteDB)
+	historySaver := &runHistoryAdapter{repo: a.runRepo}
 
 	a.runner = runner.NewRunner(&a.cfg.Runner, a.browserMgr, historySaver)
 	go a.handleRunnerEvents()
+	return nil
 }
 
 func (a *App) buildUI() {
@@ -155,20 +146,29 @@ func (a *App) buildUI() {
 	a.stepTable = newStepTablePanel(a, onDirty)
 	a.stepProperty = newStepPropertyPanel(a, onDirty)
 	a.runPanel = newRunPanel(a)
+	a.historyPanel = newHistoryPanel(a)
 
 	centerTop := container.NewBorder(a.flowEditor.widget, nil, nil, nil, a.stepTable.widget)
 	center := container.NewHSplit(centerTop, a.stepProperty.widget)
 	center.SetOffset(0.55)
+	a.editorArea = center
+	a.emptyState = a.buildEmptyState()
+	a.emptyState.Hide()
+	a.workspace = container.NewStack(a.editorArea, a.emptyState)
+
+	bottom := container.NewHSplit(a.runPanel.widget, a.historyPanel.widget)
+	bottom.SetOffset(0.72)
 
 	mainSplit := container.NewVSplit(
-		container.NewBorder(a.statusBar.widget, nil, a.flowLibrary.widget, nil, center),
-		a.runPanel.widget,
+		container.NewBorder(a.statusBar.widget, nil, a.flowLibrary.widget, nil, a.workspace),
+		bottom,
 	)
 	mainSplit.SetOffset(0.72)
 
 	a.mainWin.SetContent(mainSplit)
 	a.refreshFlowList()
 	a.runPanel.refreshEnvironments()
+	a.historyPanel.refreshFilters()
 }
 
 func (a *App) markDirty() {
@@ -319,41 +319,51 @@ func (a *App) runCurrentFlow() {
 		dialog.ShowError(fmt.Errorf("运行前检查失败，缺少环境变量: %v", missing), a.mainWin)
 		return
 	}
+	envID, envProvider, err := a.currentEnvProvider()
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("获取运行环境失败: %w", err), a.mainWin)
+		return
+	}
 	a.runPanel.reset()
-	a.stepTable.clearStatuses()
+	a.runStatuses = make([]runner.Status, len(a.currentFlow.Steps))
+	for i := range a.runStatuses {
+		a.runStatuses[i] = runner.StatusPending
+	}
+	a.stepTable.setStatuses(a.runStatuses)
 	go func() {
-		res := a.runner.RunFlow(a.currentFlow, 0)
+		res := a.runner.RunFlow(a.currentFlow, runner.RunOptions{
+			StartStep:     0,
+			EnvironmentID: envID,
+			EnvProvider:   envProvider,
+		})
 		a.runPanel.setSummary(res)
 	}()
 }
 
 func (a *App) checkEnvVars() []string {
-	if a.currentFlow == nil || a.envRepo == nil {
+	if a.currentFlow == nil {
 		return nil
 	}
-	env, err := a.envRepo.GetActive()
+	_, provider, err := a.currentEnvProvider()
 	if err != nil {
-		return []string{"未选择运行环境"}
+		return []string{"无法获取运行环境: " + err.Error()}
 	}
-	vars, _ := a.envRepo.ListVars(env.ID)
-	varMap := make(map[string]bool)
-	for _, v := range vars {
-		varMap[v.Key] = true
+	return runner.MissingEnvVars(a.currentFlow, 0, provider)
+}
+
+func (a *App) currentEnvProvider() (string, template.EnvProvider, error) {
+	if a.envRepo == nil {
+		return "", nil, fmt.Errorf("环境仓库未初始化")
 	}
-	var missing []string
-	seen := make(map[string]bool)
-	for _, s := range a.currentFlow.Steps {
-		keys := template.ScanEnvVars(s.Input.Text)
-		keys = append(keys, template.ScanEnvVars(s.Target.Value)...)
-		keys = append(keys, template.ScanEnvVars(s.Note)...)
-		for _, k := range keys {
-			if !varMap[k] && !seen[k] {
-				seen[k] = true
-				missing = append(missing, k)
-			}
-		}
+	selectedName := a.runPanel.envSelect.Selected
+	if selectedName == "" {
+		selectedName = "默认环境"
 	}
-	return missing
+	env, err := a.envRepo.GetByName(selectedName)
+	if err != nil {
+		return "", nil, err
+	}
+	return env.ID, a.envRepo.EnvProvider(env.ID), nil
 }
 
 func (a *App) onStepButton() {
@@ -368,12 +378,28 @@ func (a *App) onStepButton() {
 	if a.stepRunner != nil {
 		a.stepRunner.Close()
 	}
-	a.stepRunner = runner.NewStepRunner(&a.cfg.Runner, a.browserMgr, a.history)
-	if err := a.stepRunner.Init(a.currentFlow); err != nil {
+	// Check environment variables
+	if missing := a.checkEnvVars(); len(missing) > 0 {
+		dialog.ShowError(fmt.Errorf("运行前检查失败，缺少环境变量: %v", missing), a.mainWin)
+		return
+	}
+	envID, envProvider, err := a.currentEnvProvider()
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("获取运行环境失败: %w", err), a.mainWin)
+		return
+	}
+	historySaver := &runHistoryAdapter{repo: a.runRepo}
+	a.stepRunner = runner.NewStepRunner(&a.cfg.Runner, a.browserMgr, historySaver)
+	if err := a.stepRunner.Init(a.currentFlow, envProvider, envID); err != nil {
 		dialog.ShowError(err, a.mainWin)
 		a.stepRunner = nil
 		return
 	}
+	a.runStatuses = make([]runner.Status, len(a.currentFlow.Steps))
+	for i := range a.runStatuses {
+		a.runStatuses[i] = runner.StatusPending
+	}
+	a.stepTable.setStatuses(a.runStatuses)
 	a.stepBtn.SetText("下一步")
 	a.nextStep()
 }
@@ -391,11 +417,14 @@ func (a *App) nextStep() {
 		return
 	}
 	if res != nil {
+		idx := a.stepRunner.CurrentIndex() - 1
+		a.setStepStatus(idx, res.Status)
 		logMsg := fmt.Sprintf("步骤 %d %s: %s", a.stepRunner.CurrentIndex(), res.StepName, res.Status)
 		if res.Error != "" {
 			logMsg += " - " + res.Error
 		}
 		a.runPanel.log(logMsg)
+		a.logArtifacts(res)
 	}
 	if finished {
 		result := a.stepRunner.Result()
@@ -428,18 +457,13 @@ func (a *App) handleRunnerEvents() {
 			}
 			a.runPanel.setProgress(ev.StepIndex+1, totalSteps, stepName)
 			a.runPanel.setCurrentStep(stepName)
+			a.setStepStatus(ev.StepIndex, runner.StatusRunning)
 			a.statusBar.setRun(RunRunning, ev.StepIndex+1, totalSteps, "")
 		case runner.EventStepDone:
-			statuses := make([]runner.Status, len(a.stepTable.stepsData))
-			for i := range statuses {
-				statuses[i] = runner.StatusPending
-			}
-			if ev.StepIndex >= 0 && ev.StepIndex < len(statuses) {
-				statuses[ev.StepIndex] = ev.Result.Status
-			}
-			a.stepTable.setStatuses(statuses)
+			a.setStepStatus(ev.StepIndex, ev.Result.Status)
 			if ev.Result.Status == runner.StatusFailed {
 				a.runPanel.setArtifacts(ev.Result.Screenshot, ev.Result.HTMLSnapshot)
+				a.logArtifacts(ev.Result)
 				a.stepTable.table.Select(widget.TableCellID{Row: ev.StepIndex, Col: 0})
 			}
 		case runner.EventRunDone:
@@ -451,21 +475,80 @@ func (a *App) handleRunnerEvents() {
 				}
 				a.runPanel.setSummary(ev.RunResult)
 			}
-			a.stepTable.clearStatuses()
 			a.refreshHistory()
 		}
 	}
 }
 
+func (a *App) logArtifacts(res *runner.StepResult) {
+	if res == nil {
+		return
+	}
+	if res.Screenshot != "" {
+		a.runPanel.log("已保存截图：" + res.Screenshot)
+	}
+	if res.HTMLSnapshot != "" {
+		a.runPanel.log("已保存页面 HTML：" + res.HTMLSnapshot)
+	}
+}
+
+func (a *App) setStepStatus(index int, status runner.Status) {
+	if index < 0 || index >= len(a.stepTable.stepsData) {
+		return
+	}
+	if len(a.runStatuses) != len(a.stepTable.stepsData) {
+		a.runStatuses = make([]runner.Status, len(a.stepTable.stepsData))
+		for i := range a.runStatuses {
+			a.runStatuses[i] = runner.StatusPending
+		}
+	}
+	a.runStatuses[index] = status
+	statuses := append([]runner.Status(nil), a.runStatuses...)
+	fyne.Do(func() {
+		a.stepTable.setStatuses(statuses)
+	})
+}
+
 func (a *App) refreshFlowList() {
 	flows, _ := a.flowStore.ListSorted()
 	a.flowLibrary.setFlows(flows)
+	a.updateEmptyState(len(flows) == 0)
+}
+
+func (a *App) updateEmptyState(empty bool) {
+	if a.editorArea == nil || a.emptyState == nil {
+		return
+	}
+	fyne.Do(func() {
+		if empty {
+			a.editorArea.Hide()
+			a.emptyState.Show()
+		} else {
+			a.emptyState.Hide()
+			a.editorArea.Show()
+		}
+	})
 }
 
 func (a *App) refreshHistory() {
-	if a.currentFlow == nil {
+	if a.historyPanel == nil {
 		return
 	}
+	if a.currentFlow == nil || a.runRepo == nil {
+		a.historyPanel.setResults(nil)
+		return
+	}
+	results, err := a.runRepo.ListFiltered(
+		a.currentFlow.ID,
+		a.historyPanel.environmentFilter(),
+		a.historyPanel.statusFilter(),
+		20,
+	)
+	if err != nil {
+		a.runPanel.log("读取运行历史失败：" + err.Error())
+		return
+	}
+	a.historyPanel.setResults(results)
 }
 
 func (a *App) setCurrentFlow(f *flow.Flow) {
@@ -475,6 +558,7 @@ func (a *App) setCurrentFlow(f *flow.Flow) {
 	}
 	a.flowEditor.loadFlow(f)
 	a.stepTable.loadFlow(f)
+	a.runStatuses = nil
 	a.stepProperty.clear()
 	if f != nil {
 		a.statusBar.setFlow(f.Name)
@@ -482,6 +566,7 @@ func (a *App) setCurrentFlow(f *flow.Flow) {
 		a.statusBar.setFlow("")
 	}
 	a.markClean()
+	a.refreshHistory()
 }
 
 func (a *App) onFlowSelected(f *flow.Flow) {
@@ -552,6 +637,17 @@ func (a *App) onTagFilter(tag string) {
 func (a *App) onStepSelected(s *flow.Step, idx int) {
 	if s == nil {
 		a.stepProperty.clear()
+		return
+	}
+	if a.stepProperty.stepIndex != idx && a.stepProperty.hasUnappliedChanges() {
+		dialog.ShowConfirm("未应用的步骤修改",
+			"当前步骤属性有未应用修改，是否先应用到当前步骤？",
+			func(apply bool) {
+				if apply {
+					a.stepProperty.apply()
+				}
+				a.stepProperty.loadStep(s, idx, len(a.stepTable.stepsData))
+			}, a.mainWin)
 		return
 	}
 	a.stepProperty.loadStep(s, idx, len(a.stepTable.stepsData))

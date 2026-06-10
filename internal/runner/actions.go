@@ -18,13 +18,18 @@ import (
 
 // ActionExecutor performs CDP actions.
 type ActionExecutor struct {
-	cdp context.Context // chromedp context from browser.CDPClient
-	dir string          // snapshot directory
+	cdp        context.Context // chromedp context from browser.CDPClient
+	dir        string          // snapshot directory
+	maskInputs bool
 }
 
 // NewActionExecutor creates an executor.
-func NewActionExecutor(cdpCtx context.Context, snapshotDir string) *ActionExecutor {
-	return &ActionExecutor{cdp: cdpCtx, dir: snapshotDir}
+func NewActionExecutor(cdpCtx context.Context, snapshotDir string, maskInputs ...bool) *ActionExecutor {
+	mask := false
+	if len(maskInputs) > 0 {
+		mask = maskInputs[0]
+	}
+	return &ActionExecutor{cdp: cdpCtx, dir: snapshotDir, maskInputs: mask}
 }
 
 // ExecuteStep runs a single step.
@@ -58,25 +63,25 @@ func (a *ActionExecutor) ExecuteStep(ctx context.Context, step flow.Step, eng *t
 	var err error
 	switch step.Type {
 	case flow.StepNavigate:
-		err = a.navigate(ctx, step.Target.Value)
+		err = a.navigate(ctx, step, eng)
 	case flow.StepClick:
-		err = a.click(ctx, step.Target.Value)
+		err = a.click(ctx, step, eng)
 	case flow.StepInput:
 		err = a.input(ctx, step, eng, res)
 	case flow.StepClearAndInput:
 		err = a.clearAndInput(ctx, step, eng, res)
 	case flow.StepWaitPresent:
-		err = a.waitPresent(ctx, step.Target.Value)
+		err = a.waitPresent(ctx, step, eng)
 	case flow.StepWaitVisible:
-		err = a.waitVisible(ctx, step.Target.Value)
+		err = a.waitVisible(ctx, step, eng)
 	case flow.StepWaitFixed:
-		err = a.waitFixed(ctx, step.Target.Value)
+		err = a.waitFixed(ctx, step, eng)
 	case flow.StepGetText:
-		err = a.getText(ctx, step.Target.Value)
+		err = a.getText(ctx, step, eng)
 	case flow.StepAssertExists:
-		err = a.assertExists(ctx, step.Target.Value)
+		err = a.assertExists(ctx, step, eng)
 	case flow.StepAssertText:
-		err = a.assertText(ctx, step.Target.Value, step.Input.Text)
+		err = a.assertText(ctx, step, eng)
 	case flow.StepScreenshot:
 		err = a.screenshot(ctx, res)
 	default:
@@ -96,7 +101,7 @@ func (a *ActionExecutor) ExecuteStep(ctx context.Context, step flow.Step, eng *t
 		return res
 	}
 
-	if step.WaitAfterMs > 0 {
+	if step.Type != flow.StepWaitFixed && step.WaitAfterMs > 0 {
 		select {
 		case <-time.After(time.Duration(step.WaitAfterMs) * time.Millisecond):
 		case <-ctx.Done():
@@ -110,14 +115,22 @@ func (a *ActionExecutor) ExecuteStep(ctx context.Context, step flow.Step, eng *t
 	return res
 }
 
-func (a *ActionExecutor) navigate(ctx context.Context, url string) error {
+func (a *ActionExecutor) navigate(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	url, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
 	if url == "" {
 		return fmt.Errorf("url is empty")
 	}
 	return chromedp.Run(ctx, chromedp.Navigate(url))
 }
 
-func (a *ActionExecutor) click(ctx context.Context, xpath string) error {
+func (a *ActionExecutor) click(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
 	var nodes []*cdp.Node
 	if err := chromedp.Run(ctx, chromedp.Nodes(xpath, &nodes, chromedp.NodeVisible)); err != nil {
 		return fmt.Errorf("find element: %w", err)
@@ -129,50 +142,76 @@ func (a *ActionExecutor) click(ctx context.Context, xpath string) error {
 }
 
 func (a *ActionExecutor) input(ctx context.Context, step flow.Step, eng *template.Engine, res *StepResult) error {
-	val, err := a.resolveInput(step, eng)
+	input, err := a.resolveInput(step, eng)
 	if err != nil {
 		return err
 	}
-	res.GeneratedInput = val
-	if err := chromedp.Run(ctx, chromedp.SendKeys(step.Target.Value, val, chromedp.BySearch)); err != nil {
+	a.setGeneratedInput(res, step, input)
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
+	if err := chromedp.Run(ctx, chromedp.SendKeys(xpath, input.Value, chromedp.BySearch)); err != nil {
 		return fmt.Errorf("input: %w", err)
 	}
 	return nil
 }
 
 func (a *ActionExecutor) clearAndInput(ctx context.Context, step flow.Step, eng *template.Engine, res *StepResult) error {
-	val, err := a.resolveInput(step, eng)
+	input, err := a.resolveInput(step, eng)
 	if err != nil {
 		return err
 	}
-	res.GeneratedInput = val
+	a.setGeneratedInput(res, step, input)
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
 	if err := chromedp.Run(ctx,
-		chromedp.Clear(step.Target.Value, chromedp.BySearch),
-		chromedp.SendKeys(step.Target.Value, val, chromedp.BySearch),
+		chromedp.Clear(xpath, chromedp.BySearch),
+		chromedp.SendKeys(xpath, input.Value, chromedp.BySearch),
 	); err != nil {
 		return fmt.Errorf("clear and input: %w", err)
 	}
 	return nil
 }
 
-func (a *ActionExecutor) waitPresent(ctx context.Context, xpath string) error {
-	return chromedp.Run(ctx, chromedp.WaitVisible(xpath, chromedp.BySearch))
-}
-
-func (a *ActionExecutor) waitVisible(ctx context.Context, xpath string) error {
-	return chromedp.Run(ctx, chromedp.WaitVisible(xpath, chromedp.BySearch))
-}
-
-func (a *ActionExecutor) waitFixed(ctx context.Context, val string) error {
-	ms, err := time.ParseDuration(val + "ms")
+func (a *ActionExecutor) waitPresent(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	xpath, err := a.resolveText(step.Target.Value, eng)
 	if err != nil {
-		// try plain ms
-		var n int
-		_, err2 := fmt.Sscanf(val, "%d", &n)
-		if err2 != nil {
-			return fmt.Errorf("invalid wait value: %s", val)
+		return err
+	}
+	return chromedp.Run(ctx, chromedp.WaitReady(xpath, chromedp.BySearch))
+}
+
+func (a *ActionExecutor) waitVisible(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
+	return chromedp.Run(ctx, chromedp.WaitVisible(xpath, chromedp.BySearch))
+}
+
+func (a *ActionExecutor) waitFixed(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	ms := time.Duration(step.WaitAfterMs) * time.Millisecond
+	if step.Target.Value != "" {
+		val, err := a.resolveText(step.Target.Value, eng)
+		if err != nil {
+			return err
 		}
-		ms = time.Duration(n) * time.Millisecond
+		parsed, err := time.ParseDuration(val + "ms")
+		if err != nil {
+			var n int
+			_, err2 := fmt.Sscanf(val, "%d", &n)
+			if err2 != nil {
+				return fmt.Errorf("invalid wait value: %s", val)
+			}
+			parsed = time.Duration(n) * time.Millisecond
+		}
+		ms = parsed
+	}
+	if ms < 0 {
+		return fmt.Errorf("invalid wait value: %d", step.WaitAfterMs)
 	}
 	select {
 	case <-time.After(ms):
@@ -182,7 +221,11 @@ func (a *ActionExecutor) waitFixed(ctx context.Context, val string) error {
 	}
 }
 
-func (a *ActionExecutor) getText(ctx context.Context, xpath string) error {
+func (a *ActionExecutor) getText(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
 	var text string
 	if err := chromedp.Run(ctx, chromedp.Text(xpath, &text, chromedp.BySearch)); err != nil {
 		return fmt.Errorf("get text: %w", err)
@@ -191,7 +234,11 @@ func (a *ActionExecutor) getText(ctx context.Context, xpath string) error {
 	return nil
 }
 
-func (a *ActionExecutor) assertExists(ctx context.Context, xpath string) error {
+func (a *ActionExecutor) assertExists(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
 	var nodes []*cdp.Node
 	if err := chromedp.Run(ctx, chromedp.Nodes(xpath, &nodes, chromedp.BySearch)); err != nil {
 		return fmt.Errorf("assert exists: %w", err)
@@ -202,7 +249,15 @@ func (a *ActionExecutor) assertExists(ctx context.Context, xpath string) error {
 	return nil
 }
 
-func (a *ActionExecutor) assertText(ctx context.Context, xpath, expected string) error {
+func (a *ActionExecutor) assertText(ctx context.Context, step flow.Step, eng *template.Engine) error {
+	xpath, err := a.resolveText(step.Target.Value, eng)
+	if err != nil {
+		return err
+	}
+	expected, err := a.resolveText(step.Input.Text, eng)
+	if err != nil {
+		return err
+	}
 	var text string
 	if err := chromedp.Run(ctx, chromedp.Text(xpath, &text, chromedp.BySearch)); err != nil {
 		return fmt.Errorf("assert text: %w", err)
@@ -246,9 +301,25 @@ func (a *ActionExecutor) captureHTML(ctx context.Context) (string, error) {
 	return fname, nil
 }
 
-func (a *ActionExecutor) resolveInput(step flow.Step, eng *template.Engine) (string, error) {
+func (a *ActionExecutor) resolveInput(step flow.Step, eng *template.Engine) (template.EvaluationResult, error) {
 	if step.Input.Mode == flow.InputLiteral {
-		return step.Input.Text, nil
+		return template.EvaluationResult{Value: step.Input.Text, MaskedValue: step.Input.Text}, nil
 	}
-	return eng.Evaluate(step.Input.Text)
+	return eng.EvaluateDetailed(step.Input.Text)
+}
+
+func (a *ActionExecutor) resolveText(text string, eng *template.Engine) (string, error) {
+	if !strings.Contains(text, "${") {
+		return text, nil
+	}
+	return eng.Evaluate(text)
+}
+
+func (a *ActionExecutor) setGeneratedInput(res *StepResult, step flow.Step, input template.EvaluationResult) {
+	res.MaskInLogs = step.Input.MaskInLogs || a.maskInputs || input.HasSecret
+	if res.MaskInLogs {
+		res.GeneratedInputMasked = maskIfNeeded(input.Value, 4)
+		return
+	}
+	res.GeneratedInputMasked = input.Value
 }

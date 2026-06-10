@@ -177,12 +177,13 @@ func TestValidate(t *testing.T) {
 }
 
 type testEnvProvider struct {
-	data map[string]string
+	data    map[string]string
+	secrets map[string]bool
 }
 
 func (p *testEnvProvider) GetEnvValue(key string) (string, bool, bool) {
 	v, ok := p.data[key]
-	return v, ok, false
+	return v, ok, p.secrets[key]
 }
 
 func TestEnvVariable(t *testing.T) {
@@ -201,6 +202,50 @@ func TestEnvVariableMissing(t *testing.T) {
 	_, err := eng.Evaluate("${env:MISSING}")
 	if err == nil {
 		t.Fatal("expected error for missing env var")
+	}
+}
+
+func TestEnvVariableSecretMetadata(t *testing.T) {
+	eng := NewEngineWithEnv(&testEnvProvider{
+		data:    map[string]string{"PASSWORD": "super-secret-value"},
+		secrets: map[string]bool{"PASSWORD": true},
+	})
+	res, err := eng.EvaluateDetailed("pw=${env:PASSWORD}")
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if res.Value != "pw=super-secret-value" {
+		t.Fatalf("unexpected value: %s", res.Value)
+	}
+	if !res.HasSecret {
+		t.Fatal("expected secret metadata")
+	}
+	if strings.Contains(res.MaskedValue, "super-secret-value") {
+		t.Fatalf("masked value leaked secret: %s", res.MaskedValue)
+	}
+}
+
+func TestEnvVariableSecretMetadataSurvivesVarReuse(t *testing.T) {
+	eng := NewEngineWithEnv(&testEnvProvider{
+		data:    map[string]string{"TOKEN": "abcdef123456"},
+		secrets: map[string]bool{"TOKEN": true},
+	})
+	if _, err := eng.EvaluateDetailed("${var:token=${env:TOKEN}}"); err != nil {
+		t.Fatalf("assign secret var: %v", err)
+	}
+	res, err := eng.EvaluateDetailed("token=${var:token}")
+	if err != nil {
+		t.Fatalf("read secret var: %v", err)
+	}
+	if !res.HasSecret {
+		t.Fatal("expected reused variable to retain secret metadata")
+	}
+}
+
+func TestInvalidEnvVariableName(t *testing.T) {
+	eng := NewEngineWithEnv(&testEnvProvider{data: map[string]string{"BAD-NAME": "value"}})
+	if _, err := eng.Evaluate("${env:BAD-NAME}"); err == nil {
+		t.Fatal("expected invalid env name error")
 	}
 }
 

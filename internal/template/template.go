@@ -18,33 +18,51 @@ type EnvProvider interface {
 
 // Engine evaluates template strings.
 type Engine struct {
-	vars map[string]string
+	vars map[string]EvaluationResult
 	seq  int
 	env  EnvProvider
 }
 
+// EvaluationResult is the evaluated template value plus logging metadata.
+type EvaluationResult struct {
+	Value       string
+	MaskedValue string
+	HasSecret   bool
+}
+
 // NewEngine creates a new template engine.
 func NewEngine() *Engine {
-	return &Engine{vars: make(map[string]string), seq: 0}
+	return &Engine{vars: make(map[string]EvaluationResult), seq: 0}
 }
 
 // NewEngineWithEnv creates a template engine with environment variable support.
 func NewEngineWithEnv(env EnvProvider) *Engine {
-	return &Engine{vars: make(map[string]string), seq: 0, env: env}
+	return &Engine{vars: make(map[string]EvaluationResult), seq: 0, env: env}
 }
 
 // Evaluate replaces all placeholders in s with generated values.
 func (e *Engine) Evaluate(s string) (string, error) {
+	res, err := e.EvaluateDetailed(s)
+	return res.Value, err
+}
+
+// EvaluateDetailed replaces placeholders and reports whether secret
+// environment variables contributed to the result.
+func (e *Engine) EvaluateDetailed(s string) (EvaluationResult, error) {
 	var lastErr error
 	var result strings.Builder
+	var masked strings.Builder
+	hasSecret := false
 	i := 0
 	for i < len(s) {
 		idx := strings.Index(s[i:], "${")
 		if idx < 0 {
 			result.WriteString(s[i:])
+			masked.WriteString(s[i:])
 			break
 		}
 		result.WriteString(s[i : i+idx])
+		masked.WriteString(s[i : i+idx])
 		start := i + idx
 		// find matching }
 		end := start + 2
@@ -68,19 +86,27 @@ func (e *Engine) Evaluate(s string) (string, error) {
 		if depth != 0 {
 			lastErr = fmt.Errorf("unmatched placeholder bracket")
 			result.WriteString(s[start:])
+			masked.WriteString(s[start:])
 			break
 		}
 		inner := s[start+2 : end]
-		val, err := e.evalPlaceholder(inner)
+		val, err := e.evalPlaceholderDetailed(inner)
 		if err != nil {
 			lastErr = err
 			result.WriteString(s[start : end+1])
+			masked.WriteString(s[start : end+1])
 		} else {
-			result.WriteString(val)
+			result.WriteString(val.Value)
+			masked.WriteString(val.MaskedValue)
+			hasSecret = hasSecret || val.HasSecret
 		}
 		i = end + 1
 	}
-	return result.String(), lastErr
+	return EvaluationResult{
+		Value:       result.String(),
+		MaskedValue: masked.String(),
+		HasSecret:   hasSecret,
+	}, lastErr
 }
 
 // NextSeq returns the next sequence number.
@@ -89,7 +115,7 @@ func (e *Engine) NextSeq() int {
 	return e.seq
 }
 
-func (e *Engine) evalPlaceholder(inner string) (string, error) {
+func (e *Engine) evalPlaceholderDetailed(inner string) (EvaluationResult, error) {
 	// Variable assignment: var:name=...
 	if strings.HasPrefix(inner, "var:") {
 		rest := inner[4:]
@@ -97,9 +123,9 @@ func (e *Engine) evalPlaceholder(inner string) (string, error) {
 		if idx >= 0 {
 			name := rest[:idx]
 			expr := rest[idx+1:]
-			val, err := e.Evaluate(expr)
+			val, err := e.EvaluateDetailed(expr)
 			if err != nil {
-				return "", err
+				return EvaluationResult{}, err
 			}
 			e.vars[name] = val
 			return val, nil
@@ -108,7 +134,7 @@ func (e *Engine) evalPlaceholder(inner string) (string, error) {
 		if v, ok := e.vars[rest]; ok {
 			return v, nil
 		}
-		return "", fmt.Errorf("undefined variable: %s", rest)
+		return EvaluationResult{}, fmt.Errorf("undefined variable: %s", rest)
 	}
 
 	// Number range: 11000-11099 or 001-999
@@ -117,52 +143,83 @@ func (e *Engine) evalPlaceholder(inner string) (string, error) {
 		right := inner[idx+1:]
 		// Not a date/time placeholder
 		if !strings.HasPrefix(inner, "date:") && !strings.HasPrefix(inner, "datetime:") {
-			return e.evalRange(left, right)
+			return plain(e.evalRange(left, right))
 		}
 	}
 
 	// Enumeration: A|B|C
 	if strings.Contains(inner, "|") {
-		return e.evalEnum(inner)
+		return plain(e.evalEnum(inner))
 	}
 
 	// Environment variable: env:NAME
 	if strings.HasPrefix(inner, "env:") {
 		key := inner[4:]
-		if key == "" {
-			return "", fmt.Errorf("empty environment variable name")
+		if !isValidEnvKey(key) {
+			return EvaluationResult{}, fmt.Errorf("invalid environment variable name: %s", key)
 		}
 		if e.env == nil {
-			return "", fmt.Errorf("no environment selected")
+			return EvaluationResult{}, fmt.Errorf("no environment selected")
 		}
-		val, found, _ := e.env.GetEnvValue(key)
+		val, found, secret := e.env.GetEnvValue(key)
 		if !found {
-			return "", fmt.Errorf("environment variable not found: %s", key)
+			return EvaluationResult{}, fmt.Errorf("environment variable not found: %s", key)
 		}
-		return val, nil
+		res := EvaluationResult{Value: val, MaskedValue: val, HasSecret: secret}
+		if secret {
+			res.MaskedValue = maskValue(val, 4)
+		}
+		return res, nil
 	}
 
 	// Named placeholders
 	switch {
 	case inner == "uuid":
-		return uuid.New().String(), nil
+		return plain(uuid.New().String(), nil)
 	case inner == "timestamp":
-		return strconv.FormatInt(time.Now().Unix(), 10), nil
+		return plain(strconv.FormatInt(time.Now().Unix(), 10), nil)
 	case inner == "seq":
-		return strconv.Itoa(e.NextSeq()), nil
+		return plain(strconv.Itoa(e.NextSeq()), nil)
 	case strings.HasPrefix(inner, "number:"):
-		return e.evalNumber(inner[7:])
+		return plain(e.evalNumber(inner[7:]))
 	case strings.HasPrefix(inner, "alpha:"):
-		return e.evalAlpha(inner[6:])
+		return plain(e.evalAlpha(inner[6:]))
 	case strings.HasPrefix(inner, "alnum:"):
-		return e.evalAlnum(inner[6:])
+		return plain(e.evalAlnum(inner[6:]))
 	case strings.HasPrefix(inner, "date:"):
-		return e.evalDate(inner[5:])
+		return plain(e.evalDate(inner[5:]))
 	case strings.HasPrefix(inner, "datetime:"):
-		return e.evalDateTime(inner[9:])
+		return plain(e.evalDateTime(inner[9:]))
 	}
 
-	return "", fmt.Errorf("unknown placeholder: ${%s}", inner)
+	return EvaluationResult{}, fmt.Errorf("unknown placeholder: ${%s}", inner)
+}
+
+func plain(value string, err error) (EvaluationResult, error) {
+	if err != nil {
+		return EvaluationResult{}, err
+	}
+	return EvaluationResult{Value: value, MaskedValue: value}, nil
+}
+
+func isValidEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func maskValue(s string, visible int) string {
+	if len(s) <= visible*2 {
+		return strings.Repeat("*", len(s))
+	}
+	return s[:visible] + strings.Repeat("*", len(s)-visible*2) + s[len(s)-visible:]
 }
 
 func (e *Engine) evalRange(left, right string) (string, error) {

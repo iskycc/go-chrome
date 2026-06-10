@@ -8,10 +8,10 @@ import (
 
 // Directories holds application directory paths.
 type Directories struct {
-	DataDir   string
-	FlowsDir  string
-	LogsDir   string
-	ChromeDir string
+	DataDir    string
+	FlowsDir   string
+	LogsDir    string
+	ChromeDir  string
 	ConfigPath string
 }
 
@@ -24,7 +24,7 @@ func EnsureDirs(base string) (*Directories, error) {
 		ChromeDir:  filepath.Join(base, "chrome"),
 		ConfigPath: filepath.Join(base, "data", "app-config.json"),
 	}
-	for _, d := range []string{dirs.DataDir, dirs.FlowsDir, dirs.LogsDir, dirs.ChromeDir} {
+	for _, d := range []string{dirs.DataDir, dirs.LogsDir, dirs.ChromeDir} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			return nil, fmt.Errorf("create dir %s: %w", d, err)
 		}

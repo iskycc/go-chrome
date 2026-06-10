@@ -58,3 +58,12 @@ func TestLoadExisting(t *testing.T) {
 		t.Fatalf("unexpected timeout: %d", cfg.Runner.DefaultTimeoutMs)
 	}
 }
+
+func TestConfigInstance(t *testing.T) {
+	cfg := Default()
+	cfg.App.Theme = "custom"
+	SetInstance(cfg)
+	if Get().App.Theme != "custom" {
+		t.Fatalf("unexpected singleton config: %v", Get())
+	}
+}

@@ -22,13 +22,13 @@ type HistorySaver interface {
 
 // Runner executes flows via CDP.
 type Runner struct {
-	cfg          *config.RunnerConfig
-	browser      *browser.Manager
-	cdp          *browser.CDPClient
-	history      HistorySaver
-	events       chan Event
-	stopCh       chan struct{}
-	running      bool
+	cfg     *config.RunnerConfig
+	browser *browser.Manager
+	cdp     *browser.CDPClient
+	history HistorySaver
+	events  chan Event
+	stopCh  chan struct{}
+	running bool
 }
 
 // NewRunner creates a new runner.
@@ -38,7 +38,7 @@ func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySav
 		browser: bm,
 		history: history,
 		events:  make(chan Event, 100),
-		stopCh:  make(chan struct{}),
+		stopCh:  make(chan struct{}, 1),
 	}
 }
 
@@ -60,18 +60,27 @@ func (r *Runner) Stop() {
 	}
 }
 
+// RunOptions configures a flow run.
+type RunOptions struct {
+	StartStep     int
+	EnvironmentID string
+	EnvProvider   template.EnvProvider
+}
+
 // RunFlow executes a full flow.
-func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
+func (r *Runner) RunFlow(f *flow.Flow, opts RunOptions) *RunResult {
+	r.drainStopSignal()
 	r.running = true
 	defer func() { r.running = false }()
 
 	result := &RunResult{
-		ID:        uuid.New().String(),
-		FlowID:    f.ID,
-		FlowName:  f.Name,
-		StartedAt: time.Now(),
-		Steps:     make([]StepResult, 0, len(f.Steps)),
-		Status:    StatusRunning,
+		ID:            uuid.New().String(),
+		FlowID:        f.ID,
+		FlowName:      f.Name,
+		EnvironmentID: opts.EnvironmentID,
+		StartedAt:     time.Now(),
+		Steps:         make([]StepResult, 0, len(f.Steps)),
+		Status:        StatusRunning,
 	}
 	defer func() {
 		result.TotalSteps = len(f.Steps)
@@ -81,6 +90,12 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 		}
 		r.emit(Event{Type: EventRunDone, RunResult: result})
 	}()
+
+	if missing := MissingEnvVars(f, opts.StartStep, opts.EnvProvider); len(missing) > 0 {
+		result.Status = StatusFailed
+		r.emit(Event{Type: EventLog, LogMessage: "运行前检查失败，缺少环境变量: " + strings.Join(missing, ", ")})
+		return result
+	}
 
 	if !r.browser.IsInstalled() {
 		if err := r.browser.Install(nil); err != nil {
@@ -110,12 +125,17 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 	}
 	r.cdp = cdp
 
-	eng := template.NewEngine()
+	var eng *template.Engine
+	if opts.EnvProvider != nil {
+		eng = template.NewEngineWithEnv(opts.EnvProvider)
+	} else {
+		eng = template.NewEngine()
+	}
 	snapDir := filepath.Join("data", "run-history", f.ID, runID)
 	os.MkdirAll(snapDir, 0755)
-	actExec := NewActionExecutor(r.cdp.Context(), snapDir)
+	actExec := NewActionExecutor(r.cdp.Context(), snapDir, r.cfg.MaskInputValueInLogs)
 
-	for i := startStep; i < len(f.Steps); i++ {
+	for i := opts.StartStep; i < len(f.Steps); i++ {
 		select {
 		case <-r.stopCh:
 			result.Status = StatusFailed
@@ -141,11 +161,11 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 		if res.Error != "" {
 			logMsg += " - " + res.Error
 		}
-		if res.GeneratedInput != "" {
+		if res.GeneratedInputMasked != "" {
 			if step.Input.MaskInLogs || r.cfg.MaskInputValueInLogs {
 				logMsg += " [输入值已脱敏]"
 			} else {
-				logMsg += " 输入: " + maskIfNeeded(res.GeneratedInput, 4)
+				logMsg += " 输入: " + maskIfNeeded(res.GeneratedInputMasked, 4)
 			}
 		}
 		r.emit(Event{Type: EventLog, LogMessage: logMsg})
@@ -165,6 +185,16 @@ func (r *Runner) RunFlow(f *flow.Flow, startStep int) *RunResult {
 		result.Status = StatusSuccess
 	}
 	return result
+}
+
+func (r *Runner) drainStopSignal() {
+	for {
+		select {
+		case <-r.stopCh:
+		default:
+			return
+		}
+	}
 }
 
 func (r *Runner) executeStepWithRetry(actExec *ActionExecutor, step flow.Step, eng *template.Engine) *StepResult {

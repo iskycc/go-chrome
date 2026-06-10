@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go-chrome/internal/browser"
 	"go-chrome/internal/config"
 	"go-chrome/internal/flow"
@@ -15,10 +17,12 @@ import (
 
 // StepRunner executes one step at a time.
 type StepRunner struct {
-	cfg     *config.RunnerConfig
-	browser *browser.Manager
-	cdp     *browser.CDPClient
-	history *HistoryStore
+	cfg           *config.RunnerConfig
+	browser       *browser.Manager
+	cdp           *browser.CDPClient
+	history       HistorySaver
+	envProvider   template.EnvProvider
+	environmentID string
 
 	flow         *flow.Flow
 	currentIndex int
@@ -30,7 +34,7 @@ type StepRunner struct {
 }
 
 // NewStepRunner creates a new step runner.
-func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history *HistoryStore) *StepRunner {
+func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySaver) *StepRunner {
 	return &StepRunner{
 		cfg:     cfg,
 		browser: bm,
@@ -39,7 +43,11 @@ func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history *Histo
 }
 
 // Init initializes Chrome and CDP for the given flow.
-func (sr *StepRunner) Init(f *flow.Flow) error {
+func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, environmentID string) error {
+	if missing := MissingEnvVars(f, 0, envProvider); len(missing) > 0 {
+		return fmt.Errorf("运行前检查失败，缺少环境变量: %s", strings.Join(missing, ", "))
+	}
+
 	if !sr.browser.IsInstalled() {
 		if err := sr.browser.Install(nil); err != nil {
 			return fmt.Errorf("install chrome: %w", err)
@@ -53,13 +61,21 @@ func (sr *StepRunner) Init(f *flow.Flow) error {
 
 	sr.flow = f
 	sr.currentIndex = 0
-	sr.eng = template.NewEngine()
+	if envProvider != nil {
+		sr.eng = template.NewEngineWithEnv(envProvider)
+	} else {
+		sr.eng = template.NewEngine()
+	}
+	sr.envProvider = envProvider
+	sr.environmentID = environmentID
 	sr.result = &RunResult{
-		FlowID:    f.ID,
-		FlowName:  f.Name,
-		StartedAt: time.Now(),
-		Steps:     make([]StepResult, 0, len(f.Steps)),
-		Status:    StatusRunning,
+		ID:            uuid.New().String(),
+		FlowID:        f.ID,
+		FlowName:      f.Name,
+		EnvironmentID: environmentID,
+		StartedAt:     time.Now(),
+		Steps:         make([]StepResult, 0, len(f.Steps)),
+		Status:        StatusRunning,
 	}
 
 	runID := sr.result.StartedAt.Format("20060102-150405.000")
@@ -75,7 +91,7 @@ func (sr *StepRunner) Init(f *flow.Flow) error {
 
 	sr.snapDir = filepath.Join("data", "run-history", f.ID, runID)
 	os.MkdirAll(sr.snapDir, 0755)
-	sr.actExec = NewActionExecutor(sr.cdp.Context(), sr.snapDir)
+	sr.actExec = NewActionExecutor(sr.cdp.Context(), sr.snapDir, sr.cfg.MaskInputValueInLogs)
 	sr.started = true
 	return nil
 }

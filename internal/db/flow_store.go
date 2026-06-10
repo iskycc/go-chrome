@@ -10,7 +10,7 @@ import (
 	"go-chrome/internal/flow"
 )
 
-// FlowStore implements the old flow.Store interface backed by SQLite.
+// FlowStore provides flow persistence backed by SQLite.
 type FlowStore struct {
 	repo *FlowRepo
 }

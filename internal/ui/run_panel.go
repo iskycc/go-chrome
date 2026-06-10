@@ -55,7 +55,20 @@ func newRunPanel(app *App) *runPanel {
 	})
 
 	envBtn := widget.NewButton("管理环境", func() { p.app.showEnvManager() })
-	p.envSelect = widget.NewSelect([]string{"默认环境"}, nil)
+	p.envSelect = widget.NewSelect([]string{"默认环境"}, func(name string) {
+		if p.app.envRepo == nil || name == "" {
+			return
+		}
+		env, err := p.app.envRepo.GetByName(name)
+		if err != nil {
+			p.log("切换环境失败：" + err.Error())
+			return
+		}
+		if err := p.app.envRepo.SetActive(env.ID); err != nil {
+			p.log("保存当前环境失败：" + err.Error())
+			return
+		}
+	})
 	p.envSelect.SetSelected("默认环境")
 
 	controls := container.NewHBox(startBtn, runBtn, stepBtn, stopBtn, envBtn)

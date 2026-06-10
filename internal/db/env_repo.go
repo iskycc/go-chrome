@@ -2,7 +2,9 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +37,26 @@ type EnvRepo struct {
 	db *DB
 }
 
+type environmentExport struct {
+	Version      int                      `json:"version"`
+	ExportedAt   time.Time                `json:"exportedAt"`
+	Environments []environmentExportEntry `json:"environments"`
+}
+
+type environmentExportEntry struct {
+	Name        string                      `json:"name"`
+	Description string                      `json:"description"`
+	IsActive    bool                        `json:"isActive"`
+	Variables   []environmentVariableExport `json:"variables"`
+}
+
+type environmentVariableExport struct {
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	IsSecret    bool   `json:"isSecret"`
+	Description string `json:"description"`
+}
+
 // NewEnvRepo creates an environment repository.
 func NewEnvRepo(db *DB) *EnvRepo {
 	return &EnvRepo{db: db}
@@ -63,7 +85,12 @@ func (r *EnvRepo) CreateDefaultIfNone() error {
 
 // Save inserts or updates an environment.
 func (r *EnvRepo) Save(e *Environment) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	nowTime := time.Now().UTC()
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = nowTime
+	}
+	e.UpdatedAt = nowTime
+	now := nowTime.Format(time.RFC3339)
 	created := e.CreatedAt.UTC().Format(time.RFC3339)
 	_, err := r.db.Conn.Exec(`
 		INSERT INTO environments (id, name, description, is_active, created_at, updated_at)
@@ -103,6 +130,25 @@ func (r *EnvRepo) Get(id string) (*Environment, error) {
 }
 
 // List returns all environments.
+// GetByName loads an environment by name.
+func (r *EnvRepo) GetByName(name string) (*Environment, error) {
+	row := r.db.Conn.QueryRow("SELECT id, name, description, is_active, created_at, updated_at FROM environments WHERE name = ?", name)
+	e := &Environment{}
+	var isActive int
+	var createdAt, updatedAt string
+	err := row.Scan(&e.ID, &e.Name, &e.Description, &isActive, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("environment not found: %s", name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.IsActive = isActive != 0
+	e.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	e.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return e, nil
+}
+
 func (r *EnvRepo) List() ([]*Environment, error) {
 	rows, err := r.db.Conn.Query("SELECT id, name, description, is_active, created_at, updated_at FROM environments ORDER BY created_at")
 	if err != nil {
@@ -167,7 +213,12 @@ func (r *EnvRepo) SetActive(id string) error {
 
 // SaveVar inserts or updates a variable.
 func (r *EnvRepo) SaveVar(v *EnvironmentVariable) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	nowTime := time.Now().UTC()
+	if v.CreatedAt.IsZero() {
+		v.CreatedAt = nowTime
+	}
+	v.UpdatedAt = nowTime
+	now := nowTime.Format(time.RFC3339)
 	created := v.CreatedAt.UTC().Format(time.RFC3339)
 	_, err := r.db.Conn.Exec(`
 		INSERT INTO environment_variables (id, environment_id, key, value, is_secret, description, created_at, updated_at)
@@ -237,6 +288,90 @@ func (r *EnvRepo) GetVar(environmentID, key string) (*EnvironmentVariable, error
 // EnvProvider implements template.EnvProvider.
 func (r *EnvRepo) EnvProvider(environmentID string) *envProvider {
 	return &envProvider{repo: r, envID: environmentID}
+}
+
+// Export writes all environments and variables to a JSON file.
+func (r *EnvRepo) Export(path string) error {
+	envs, err := r.List()
+	if err != nil {
+		return err
+	}
+	out := environmentExport{
+		Version:    1,
+		ExportedAt: time.Now().UTC(),
+	}
+	for _, env := range envs {
+		vars, err := r.ListVars(env.ID)
+		if err != nil {
+			return err
+		}
+		entry := environmentExportEntry{
+			Name:        env.Name,
+			Description: env.Description,
+			IsActive:    env.IsActive,
+		}
+		for _, v := range vars {
+			entry.Variables = append(entry.Variables, environmentVariableExport{
+				Key:         v.Key,
+				Value:       v.Value,
+				IsSecret:    v.IsSecret,
+				Description: v.Description,
+			})
+		}
+		out.Environments = append(out.Environments, entry)
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// Import reads environments and variables from a JSON file.
+func (r *EnvRepo) Import(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var in environmentExport
+	if err := json.Unmarshal(data, &in); err != nil {
+		return err
+	}
+	for _, entry := range in.Environments {
+		if entry.Name == "" {
+			continue
+		}
+		env, err := r.GetByName(entry.Name)
+		if err != nil {
+			env = &Environment{ID: uuid.New().String(), Name: entry.Name}
+		}
+		env.Description = entry.Description
+		env.IsActive = entry.IsActive
+		if err := r.Save(env); err != nil {
+			return err
+		}
+		if entry.IsActive {
+			if err := r.SetActive(env.ID); err != nil {
+				return err
+			}
+		}
+		for _, v := range entry.Variables {
+			if v.Key == "" {
+				continue
+			}
+			existing, err := r.GetVar(env.ID, v.Key)
+			if err != nil {
+				existing = &EnvironmentVariable{ID: uuid.New().String(), EnvironmentID: env.ID, Key: v.Key}
+			}
+			existing.Value = v.Value
+			existing.IsSecret = v.IsSecret
+			existing.Description = v.Description
+			if err := r.SaveVar(existing); err != nil {
+				return err
+			}
+		}
+	}
+	return r.CreateDefaultIfNone()
 }
 
 // envProvider adapts EnvRepo to template engine.
