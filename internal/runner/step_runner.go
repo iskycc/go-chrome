@@ -18,8 +18,8 @@ import (
 // StepRunner executes one step at a time.
 type StepRunner struct {
 	cfg           *config.RunnerConfig
-	browser       *browser.Manager
-	cdp           *browser.CDPClient
+	browser       browserController
+	cdp           cdpSession
 	history       HistorySaver
 	envProvider   template.EnvProvider
 	environmentID string
@@ -27,18 +27,33 @@ type StepRunner struct {
 	flow         *flow.Flow
 	currentIndex int
 	eng          *template.Engine
-	actExec      *ActionExecutor
+	actExec      stepExecutor
 	snapDir      string
 	result       *RunResult
 	started      bool
+
+	connectCDP        func(int) (cdpSession, error)
+	newActionExecutor func(context.Context, string, bool) stepExecutor
+	retrySleep        func(time.Duration)
 }
 
 // NewStepRunner creates a new step runner.
 func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySaver) *StepRunner {
+	var controller browserController
+	if bm != nil {
+		controller = bm
+	}
 	return &StepRunner{
-		cfg:     cfg,
-		browser: bm,
-		history: history,
+		cfg:        cfg,
+		browser:    controller,
+		history:    history,
+		retrySleep: time.Sleep,
+		connectCDP: func(port int) (cdpSession, error) {
+			return browser.Connect(port)
+		},
+		newActionExecutor: func(ctx context.Context, snapDir string, maskInputs bool) stepExecutor {
+			return NewActionExecutor(ctx, snapDir, maskInputs)
+		},
 	}
 }
 
@@ -46,6 +61,10 @@ func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history Histor
 func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, environmentID string) error {
 	if missing := MissingEnvVars(f, 0, envProvider); len(missing) > 0 {
 		return fmt.Errorf("运行前检查失败，缺少环境变量: %s", strings.Join(missing, ", "))
+	}
+
+	if sr.browser == nil {
+		return fmt.Errorf("browser manager is not initialized")
 	}
 
 	if !sr.browser.IsInstalled() {
@@ -83,7 +102,7 @@ func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, envir
 	if err != nil {
 		return fmt.Errorf("start chrome: %w", err)
 	}
-	cdp, err := browser.Connect(port)
+	cdp, err := sr.connectCDP(port)
 	if err != nil {
 		return fmt.Errorf("cdp connect: %w", err)
 	}
@@ -91,7 +110,7 @@ func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, envir
 
 	sr.snapDir = filepath.Join("data", "run-history", f.ID, runID)
 	os.MkdirAll(sr.snapDir, 0755)
-	sr.actExec = NewActionExecutor(sr.cdp.Context(), sr.snapDir, sr.cfg.MaskInputValueInLogs)
+	sr.actExec = sr.newActionExecutor(sr.cdp.Context(), sr.snapDir, sr.cfg.MaskInputValueInLogs)
 	sr.started = true
 	return nil
 }
@@ -143,7 +162,7 @@ func (sr *StepRunner) executeStepWithRetry(step flow.Step) *StepResult {
 	var res *StepResult
 	for attempt := 0; attempt <= retries; attempt++ {
 		if attempt > 0 {
-			time.Sleep(500 * time.Millisecond)
+			sr.retrySleep(500 * time.Millisecond)
 		}
 		timeout := time.Duration(step.TimeoutMs) * time.Millisecond
 		if timeout <= 0 {

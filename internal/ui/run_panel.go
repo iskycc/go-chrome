@@ -2,8 +2,12 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
+	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -17,11 +21,13 @@ type runPanel struct {
 
 	progressBar  *widget.ProgressBar
 	progressText *widget.Label
-	logsEntry    *widget.Entry
+	logBox       *fyne.Container
+	logScroll    *container.Scroll
 	summary      *widget.Label
 	currentStep  *widget.Label
 	artifactBox  *fyne.Container
 	envSelect    *widget.Select
+	stopBtn      *widget.Button
 }
 
 func newRunPanel(app *App) *runPanel {
@@ -32,17 +38,13 @@ func newRunPanel(app *App) *runPanel {
 	p.progressBar.Max = 1
 	p.progressText = widget.NewLabel("就绪")
 
-	p.logsEntry = widget.NewMultiLineEntry()
-	p.logsEntry.Disable()
-	p.logsEntry.Wrapping = fyne.TextWrapWord
+	p.logBox = container.NewVBox()
+	p.logScroll = container.NewScroll(p.logBox)
 
 	p.summary = widget.NewLabel("成功：0  失败：0  跳过：0  总耗时：0.0s")
 	p.currentStep = widget.NewLabel("")
 	p.artifactBox = container.NewHBox()
 
-	startBtn := widget.NewButtonWithIcon("启动浏览器", theme.ViewRefreshIcon(), func() {
-		go p.app.startBrowser()
-	})
 	runBtn := widget.NewButtonWithIcon("运行整个流程", theme.MediaPlayIcon(), func() {
 		go p.app.runCurrentFlow()
 	})
@@ -50,11 +52,25 @@ func newRunPanel(app *App) *runPanel {
 		go p.app.onStepButton()
 	})
 	p.app.stepBtn = stepBtn
-	stopBtn := widget.NewButtonWithIcon("停止", theme.MediaStopIcon(), func() {
+	p.stopBtn = widget.NewButtonWithIcon("停止", theme.MediaStopIcon(), func() {
 		p.app.runner.Stop()
 	})
+	p.stopBtn.Hide()
 
-	envBtn := widget.NewButton("管理环境", func() { p.app.showEnvManager() })
+	var moreBtn *widget.Button
+	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
+		menu := fyne.NewMenu("运行操作",
+			fyne.NewMenuItemWithIcon("启动浏览器", theme.ViewRefreshIcon(), func() { go p.app.startBrowser() }),
+			fyne.NewMenuItemWithIcon("管理环境", theme.SettingsIcon(), func() { p.app.showEnvManager() }),
+			fyne.NewMenuItemWithIcon("浏览器下载配置", theme.ComputerIcon(), func() {
+				if p.app.moduleTabs != nil {
+					p.app.moduleTabs.SelectIndex(4)
+				}
+			}),
+		)
+		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
+	})
+
 	p.envSelect = widget.NewSelect([]string{"默认环境"}, func(name string) {
 		if p.app.envRepo == nil || name == "" {
 			return
@@ -71,7 +87,7 @@ func newRunPanel(app *App) *runPanel {
 	})
 	p.envSelect.SetSelected("默认环境")
 
-	controls := container.NewHBox(startBtn, runBtn, stepBtn, stopBtn, envBtn)
+	controls := container.NewHBox(runBtn, stepBtn, p.stopBtn, moreBtn)
 
 	rightPanel := container.NewVBox(
 		widget.NewLabelWithStyle("运行摘要", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -87,15 +103,40 @@ func newRunPanel(app *App) *runPanel {
 		topBar,
 		container.NewHBox(p.currentStep, p.artifactBox),
 		rightPanel, nil,
-		container.NewScroll(p.logsEntry),
+		p.logScroll,
 	)
 	return p
 }
 
 func (p *runPanel) log(msg string) {
 	fyne.Do(func() {
-		p.logsEntry.SetText(p.logsEntry.Text + msg + "\n")
+		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg)
+		text := canvas.NewText(line, logColor(msg))
+		text.TextSize = 13
+		text.TextStyle = fyne.TextStyle{Monospace: true}
+		p.logBox.Add(text)
+		if len(p.logBox.Objects) > 300 {
+			p.logBox.Objects = p.logBox.Objects[len(p.logBox.Objects)-300:]
+		}
+		p.logBox.Refresh()
+		p.logScroll.ScrollToBottom()
 	})
+}
+
+func logColor(msg string) color.Color {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(msg, "失败") || strings.Contains(msg, "错误") || strings.Contains(lower, "error") || strings.Contains(lower, "failed"):
+		return color.NRGBA{R: 220, G: 38, B: 38, A: 255}
+	case strings.Contains(msg, "未检测") || strings.Contains(msg, "缺少") || strings.Contains(lower, "warn"):
+		return color.NRGBA{R: 180, G: 83, B: 9, A: 255}
+	case strings.Contains(msg, "成功") || strings.Contains(msg, "完成") || strings.Contains(msg, "就绪") || strings.Contains(msg, "已检测") || strings.Contains(lower, "success"):
+		return color.NRGBA{R: 22, G: 163, B: 74, A: 255}
+	case strings.Contains(msg, "下载") || strings.Contains(msg, "启动") || strings.Contains(msg, "运行") || strings.Contains(msg, "进度"):
+		return color.NRGBA{R: 37, G: 99, B: 235, A: 255}
+	default:
+		return color.NRGBA{R: 55, G: 65, B: 81, A: 255}
+	}
 }
 
 func (p *runPanel) setProgress(current, total int, stepName string) {
@@ -147,6 +188,19 @@ func (p *runPanel) reset() {
 		p.progressText.SetText("就绪")
 		p.currentStep.SetText("")
 		p.clearArtifacts()
+	})
+}
+
+func (p *runPanel) setRunning(running bool) {
+	fyne.Do(func() {
+		if p.stopBtn == nil {
+			return
+		}
+		if running {
+			p.stopBtn.Show()
+		} else {
+			p.stopBtn.Hide()
+		}
 	})
 }
 

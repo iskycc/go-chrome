@@ -17,16 +17,16 @@ type Config struct {
 
 // ChromeConfig holds Chrome-related settings.
 type ChromeConfig struct {
-	DownloadSource     string `json:"downloadSource"`     // official_stable, official_fixed_version, custom_url
-	Channel            string `json:"channel"`            // Stable, Beta, Dev, Canary
-	FixedVersion       string `json:"fixedVersion"`
-	CustomDownloadURL  string `json:"customDownloadURL"`
+	DownloadSource       string `json:"downloadSource"` // official_stable, official_fixed_version, custom_url
+	Channel              string `json:"channel"`        // Stable, Beta, Dev, Canary
+	FixedVersion         string `json:"fixedVersion"`
+	CustomDownloadURL    string `json:"customDownloadURL"`
 	CustomDownloadSHA256 string `json:"customDownloadSHA256"`
-	CustomVersionLabel string `json:"customVersionLabel"`
-	FallbackToOfficial bool   `json:"fallbackToOfficial"`
-	InstallDir         string `json:"installDir"`
-	UserDataDir        string `json:"userDataDir"`
-	KeepDownloadCache  bool   `json:"keepDownloadCache"`
+	CustomVersionLabel   string `json:"customVersionLabel"`
+	FallbackToOfficial   bool   `json:"fallbackToOfficial"`
+	InstallDir           string `json:"installDir"`
+	UserDataDir          string `json:"userDataDir"`
+	KeepDownloadCache    bool   `json:"keepDownloadCache"`
 }
 
 // RunnerConfig holds automation runner settings.
@@ -101,6 +101,22 @@ func Load(path string) (*Config, error) {
 	}
 	// Ensure defaults for missing fields
 	defaultCfg := Default()
+	var raw struct {
+		Chrome map[string]json.RawMessage `json:"chrome"`
+	}
+	_ = json.Unmarshal(data, &raw)
+	if cfg.Chrome.DownloadSource == "" {
+		cfg.Chrome.DownloadSource = defaultCfg.Chrome.DownloadSource
+	}
+	if cfg.Chrome.Channel == "" {
+		cfg.Chrome.Channel = defaultCfg.Chrome.Channel
+	}
+	if _, ok := raw.Chrome["fallbackToOfficial"]; !ok {
+		cfg.Chrome.FallbackToOfficial = defaultCfg.Chrome.FallbackToOfficial
+	}
+	if _, ok := raw.Chrome["keepDownloadCache"]; !ok {
+		cfg.Chrome.KeepDownloadCache = defaultCfg.Chrome.KeepDownloadCache
+	}
 	if cfg.Chrome.InstallDir == "" {
 		cfg.Chrome.InstallDir = defaultCfg.Chrome.InstallDir
 	}

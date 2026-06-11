@@ -5,6 +5,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"go-chrome/internal/flow"
@@ -62,19 +63,33 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 	}
 	p.list.OnUnselected = func(id widget.ListItemID) { p.selectedIndex = -1 }
 
-	newBtn := widget.NewButton("新建", func() { p.app.createNewFlow() })
-	saveBtn := widget.NewButton("保存", func() { p.app.saveCurrentFlow() })
-	importBtn := widget.NewButton("导入", func() { p.app.importFlow() })
-	exportBtn := widget.NewButton("导出", func() { p.app.exportFlow() })
-	cloneBtn := widget.NewButton("复制", func() {
-		if p.selectedIndex >= 0 && p.selectedIndex < len(p.flows) {
-			p.app.onFlowClone(p.flows[p.selectedIndex])
-		}
-	})
-	delBtn := widget.NewButton("删除", func() {
-		if p.selectedIndex >= 0 && p.selectedIndex < len(p.flows) {
-			p.app.onFlowDelete(p.flows[p.selectedIndex])
-		}
+	newBtn := widget.NewButtonWithIcon("新建", theme.ContentAddIcon(), func() { p.app.createNewFlow() })
+	saveBtn := widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() { p.app.saveCurrentFlow() })
+	var moreBtn *widget.Button
+	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
+		hasSelection := p.selectedIndex >= 0 && p.selectedIndex < len(p.flows)
+		exportItem := fyne.NewMenuItemWithIcon("导出当前流程", theme.UploadIcon(), func() { p.app.exportFlow() })
+		cloneItem := fyne.NewMenuItemWithIcon("复制当前流程", theme.ContentCopyIcon(), func() {
+			if p.selectedIndex >= 0 && p.selectedIndex < len(p.flows) {
+				p.app.onFlowClone(p.flows[p.selectedIndex])
+			}
+		})
+		deleteItem := fyne.NewMenuItemWithIcon("删除当前流程", theme.DeleteIcon(), func() {
+			if p.selectedIndex >= 0 && p.selectedIndex < len(p.flows) {
+				p.app.onFlowDelete(p.flows[p.selectedIndex])
+			}
+		})
+		exportItem.Disabled = !hasSelection
+		cloneItem.Disabled = !hasSelection
+		deleteItem.Disabled = !hasSelection
+		menu := fyne.NewMenu("流程操作",
+			fyne.NewMenuItemWithIcon("导入流程", theme.DownloadIcon(), func() { p.app.importFlow() }),
+			fyne.NewMenuItemSeparator(),
+			exportItem,
+			cloneItem,
+			deleteItem,
+		)
+		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
 	})
 
 	p.widget = container.NewBorder(
@@ -82,8 +97,7 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 			widget.NewLabelWithStyle("流程库", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			p.search,
 			p.tagFilter,
-			container.NewHBox(newBtn, saveBtn, importBtn),
-			container.NewHBox(exportBtn, cloneBtn, delBtn),
+			container.NewHBox(newBtn, saveBtn, moreBtn),
 		),
 		nil, nil, nil,
 		p.list,
@@ -124,9 +138,6 @@ func (p *flowLibraryPanel) filter() {
 		selectedTag = ""
 	}
 
-	if p.app.flowStore == nil {
-		return
-	}
 	allFlows, _ := p.app.flowStore.ListSorted()
 	var results []*flow.Flow
 	for _, f := range allFlows {
@@ -158,9 +169,7 @@ func (p *flowLibraryPanel) filter() {
 		}
 	}
 	p.flows = results
-	if p.list != nil {
-		p.list.Refresh()
-	}
+	p.list.Refresh()
 }
 
 func (p *flowLibraryPanel) refresh() {

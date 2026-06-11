@@ -80,6 +80,54 @@ func TestResolveInputHonorsDefaultMaskConfig(t *testing.T) {
 	}
 }
 
+func TestResolveInputLiteral(t *testing.T) {
+	exec := NewActionExecutor(nil, "")
+	step := flow.NewStep("username", flow.StepInput)
+	step.Input = flow.Input{Mode: flow.InputLiteral, Text: "plain-user"}
+
+	input, err := exec.resolveInput(step, template.NewEngine())
+	if err != nil {
+		t.Fatalf("resolve literal input: %v", err)
+	}
+	if input.Value != "plain-user" || input.MaskedValue != "plain-user" || input.HasSecret {
+		t.Fatalf("unexpected literal input: %+v", input)
+	}
+}
+
+func TestExecuteStepSkippedWhenDisabled(t *testing.T) {
+	exec := NewActionExecutor(nil, "")
+	step := flow.NewStep("disabled", flow.StepWaitFixed)
+	step.Enabled = false
+
+	res := exec.ExecuteStep(context.Background(), step, template.NewEngine())
+	if res.Status != StatusSkipped {
+		t.Fatalf("expected skipped, got %+v", res)
+	}
+}
+
+func TestExecuteStepUnsupportedType(t *testing.T) {
+	exec := NewActionExecutor(nil, t.TempDir())
+	step := flow.NewStep("bad", flow.StepType("bad_type"))
+
+	res := exec.ExecuteStep(context.Background(), step, template.NewEngine())
+	if res.Status != StatusFailed || !strings.Contains(res.Error, "unsupported step type") {
+		t.Fatalf("expected unsupported step failure, got %+v", res)
+	}
+}
+
+func TestExecuteStepCancelledDuringPreWait(t *testing.T) {
+	exec := NewActionExecutor(nil, "")
+	step := flow.NewStep("wait", flow.StepWaitFixed)
+	step.WaitBeforeMs = 100
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	res := exec.ExecuteStep(ctx, step, template.NewEngine())
+	if res.Status != StatusFailed || res.Error != "cancelled during pre-wait" {
+		t.Fatalf("expected pre-wait cancel, got %+v", res)
+	}
+}
+
 func TestWaitFixedUsesWaitAfterMsWhenTargetEmpty(t *testing.T) {
 	exec := NewActionExecutor(nil, "")
 	step := flow.NewStep("wait", flow.StepWaitFixed)
@@ -102,5 +150,21 @@ func TestWaitFixedSupportsTemplateTargetOverride(t *testing.T) {
 
 	if err := exec.waitFixed(context.Background(), step, eng); err != nil {
 		t.Fatalf("wait fixed with template target: %v", err)
+	}
+}
+
+func TestWaitFixedInvalidValues(t *testing.T) {
+	exec := NewActionExecutor(nil, "")
+
+	step := flow.NewStep("wait", flow.StepWaitFixed)
+	step.WaitAfterMs = -1
+	if err := exec.waitFixed(context.Background(), step, template.NewEngine()); err == nil {
+		t.Fatal("expected negative wait error")
+	}
+
+	step = flow.NewStep("wait", flow.StepWaitFixed)
+	step.Target.Value = "abc"
+	if err := exec.waitFixed(context.Background(), step, template.NewEngine()); err == nil {
+		t.Fatal("expected invalid target wait error")
 	}
 }

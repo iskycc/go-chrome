@@ -6,6 +6,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"go-chrome/internal/flow"
@@ -20,6 +21,7 @@ type stepTablePanel struct {
 	table         *widget.Table
 	selected      int
 	statuses      []runner.Status
+	selectedBar   *fyne.Container
 	onStepChanged func()
 }
 
@@ -27,16 +29,19 @@ func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
 	p := &stepTablePanel{app: app, selected: -1, onStepChanged: onStepChanged}
 	p.initTable()
 
-	addBtn := widget.NewButton("新增步骤", func() { p.showAddStepDialog() })
-	delBtn := widget.NewButton("删除步骤", func() { p.deleteStep() })
-	upBtn := widget.NewButton("上移", func() { p.moveStep(-1) })
-	downBtn := widget.NewButton("下移", func() { p.moveStep(1) })
-	copyBtn := widget.NewButton("复制步骤", func() { p.copyStep() })
+	addBtn := widget.NewButtonWithIcon("新增步骤", theme.ContentAddIcon(), func() { p.showAddStepDialog() })
+	copyBtn := widget.NewButtonWithIcon("复制", theme.ContentCopyIcon(), func() { p.copyStep() })
+	delBtn := widget.NewButtonWithIcon("删除", theme.DeleteIcon(), func() { p.deleteStep() })
+	upBtn := widget.NewButtonWithIcon("上移", theme.MoveUpIcon(), func() { p.moveStep(-1) })
+	downBtn := widget.NewButtonWithIcon("下移", theme.MoveDownIcon(), func() { p.moveStep(1) })
+	p.selectedBar = container.NewHBox(widget.NewLabel("选中步骤："), copyBtn, delBtn, upBtn, downBtn)
+	p.selectedBar.Hide()
 
 	p.widget = container.NewBorder(
 		container.NewVBox(
 			widget.NewLabelWithStyle("2. 步骤编排", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			container.NewHBox(addBtn, copyBtn, delBtn, upBtn, downBtn),
+			container.NewHBox(addBtn),
+			p.selectedBar,
 		),
 		nil, nil, nil,
 		p.table,
@@ -107,6 +112,7 @@ func (p *stepTablePanel) initTable() {
 			return
 		}
 		p.selected = id.Row
+		p.updateSelectedActions()
 		p.app.onStepSelected(&p.stepsData[id.Row], id.Row)
 	}
 	p.table.SetColumnWidth(0, 40)
@@ -144,6 +150,7 @@ func (p *stepTablePanel) loadFlow(f *flow.Flow) {
 	}
 	p.selected = -1
 	p.statuses = nil
+	p.updateSelectedActions()
 	p.table.Refresh()
 }
 
@@ -189,6 +196,7 @@ func (p *stepTablePanel) deleteStep() {
 	p.stepsData = append(p.stepsData[:p.selected], p.stepsData[p.selected+1:]...)
 	p.currentFlow.Steps = p.stepsData
 	p.selected = -1
+	p.updateSelectedActions()
 	p.table.UnselectAll()
 	p.table.Refresh()
 	p.app.onStepSelected(nil, -1)
@@ -204,9 +212,21 @@ func (p *stepTablePanel) moveStep(delta int) {
 	p.stepsData[idx], p.stepsData[newIdx] = p.stepsData[newIdx], p.stepsData[idx]
 	p.currentFlow.Steps = p.stepsData
 	p.selected = newIdx
+	p.updateSelectedActions()
 	p.table.Select(widget.TableCellID{Row: newIdx, Col: 0})
 	p.table.Refresh()
 	p.fireChanged()
+}
+
+func (p *stepTablePanel) updateSelectedActions() {
+	if p.selectedBar == nil {
+		return
+	}
+	if p.currentFlow != nil && p.selected >= 0 && p.selected < len(p.stepsData) {
+		p.selectedBar.Show()
+	} else {
+		p.selectedBar.Hide()
+	}
 }
 
 func (p *stepTablePanel) copyStep() {

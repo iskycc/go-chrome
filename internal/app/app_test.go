@@ -27,3 +27,26 @@ func TestEnsureDirsCreatesRuntimeDirsWithoutLegacyFlowsDir(t *testing.T) {
 		t.Fatalf("legacy data/flows dir should not be created, err=%v", err)
 	}
 }
+
+func TestEnsureDirsReturnsCreateError(t *testing.T) {
+	base := t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "data"), []byte("not a dir"), 0644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	if _, err := EnsureDirs(base); err == nil {
+		t.Fatal("expected create dir error")
+	}
+}
+
+func TestExecutableDir(t *testing.T) {
+	dir, err := ExecutableDir()
+	if err != nil {
+		t.Fatalf("executable dir: %v", err)
+	}
+	if dir == "" {
+		t.Fatal("expected non-empty executable dir")
+	}
+	if !filepath.IsAbs(dir) {
+		t.Fatalf("expected absolute executable dir, got %s", dir)
+	}
+}

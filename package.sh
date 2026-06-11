@@ -18,7 +18,7 @@ mkdir -p "$PKGDIR"
 cp go-chrome.exe "$PKGDIR/"
 cp README.md FAQ.md USER_GUIDE.md "$PKGDIR/" 2>/dev/null || true
 
-mkdir -p "$PKGDIR/data/flows"
+mkdir -p "$PKGDIR/data"
 mkdir -p "$PKGDIR/logs"
 mkdir -p "$PKGDIR/chrome"
 
