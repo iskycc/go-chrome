@@ -57,6 +57,65 @@ func TestLoadExisting(t *testing.T) {
 	if cfg.Runner.DefaultTimeoutMs != 5000 {
 		t.Fatalf("unexpected timeout: %d", cfg.Runner.DefaultTimeoutMs)
 	}
+	if !cfg.Chrome.FallbackToOfficial {
+		t.Fatal("missing fallbackToOfficial should default to true")
+	}
+	if !cfg.Chrome.KeepDownloadCache {
+		t.Fatal("missing keepDownloadCache should default to true")
+	}
+}
+
+func TestLoadInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte("{bad json"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
+func TestLoadReadError(t *testing.T) {
+	if _, err := Load(t.TempDir()); err == nil {
+		t.Fatal("expected read error for directory path")
+	}
+}
+
+func TestLoadBackfillsMissingDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"chrome":{},"runner":{},"app":{}}`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defaults := Default()
+	if cfg.Chrome.DownloadSource != defaults.Chrome.DownloadSource ||
+		cfg.Chrome.Channel != defaults.Chrome.Channel ||
+		cfg.Chrome.InstallDir != defaults.Chrome.InstallDir ||
+		cfg.Chrome.UserDataDir != defaults.Chrome.UserDataDir ||
+		cfg.Runner.DefaultTimeoutMs != defaults.Runner.DefaultTimeoutMs ||
+		cfg.Runner.DefaultWaitAfterMs != defaults.Runner.DefaultWaitAfterMs ||
+		cfg.App.LogRetentionDays != defaults.App.LogRetentionDays ||
+		cfg.App.WindowWidth != defaults.App.WindowWidth ||
+		cfg.App.WindowHeight != defaults.App.WindowHeight {
+		t.Fatalf("defaults not backfilled: %+v", cfg)
+	}
+}
+
+func TestSaveCreateDirError(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("file"), 0644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	if err := Save(filepath.Join(blocker, "config.json"), Default()); err == nil {
+		t.Fatal("expected create dir error")
+	}
 }
 
 func TestConfigInstance(t *testing.T) {

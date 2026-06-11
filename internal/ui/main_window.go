@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"go-chrome/assets"
@@ -36,18 +37,20 @@ type App struct {
 	recentRepo  *db.RecentRepo
 	runRepo     *db.RunRepo
 
-	statusBar    *statusBar
-	flowLibrary  *flowLibraryPanel
-	flowEditor   *flowEditorPanel
-	stepTable    *stepTablePanel
-	stepProperty *stepPropertyPanel
-	runPanel     *runPanel
-	historyPanel *historyPanel
-	workspace    *fyne.Container
-	editorArea   fyne.CanvasObject
-	emptyState   fyne.CanvasObject
-	currentFlow  *flow.Flow
-	runStatuses  []runner.Status
+	statusBar     *statusBar
+	flowLibrary   *flowLibraryPanel
+	flowEditor    *flowEditorPanel
+	stepTable     *stepTablePanel
+	stepProperty  *stepPropertyPanel
+	runPanel      *runPanel
+	historyPanel  *historyPanel
+	settingsPanel *settingsPanel
+	moduleTabs    *container.AppTabs
+	workspace     *fyne.Container
+	editorArea    fyne.CanvasObject
+	emptyState    fyne.CanvasObject
+	currentFlow   *flow.Flow
+	runStatuses   []runner.Status
 
 	dirty        bool
 	chromeTicker *time.Ticker
@@ -147,25 +150,30 @@ func (a *App) buildUI() {
 	a.stepProperty = newStepPropertyPanel(a, onDirty)
 	a.runPanel = newRunPanel(a)
 	a.historyPanel = newHistoryPanel(a)
+	a.settingsPanel = newSettingsPanel(a)
 
-	centerTop := container.NewBorder(a.flowEditor.widget, nil, nil, nil, a.stepTable.widget)
-	center := container.NewHSplit(centerTop, a.stepProperty.widget)
-	center.SetOffset(0.55)
-	a.editorArea = center
+	a.editorArea = a.flowEditor.widget
 	a.emptyState = a.buildEmptyState()
 	a.emptyState.Hide()
-	a.workspace = container.NewStack(a.editorArea, a.emptyState)
+	flowDetail := container.NewStack(a.editorArea, a.emptyState)
 
-	bottom := container.NewHSplit(a.runPanel.widget, a.historyPanel.widget)
-	bottom.SetOffset(0.72)
+	flowModule := container.NewHSplit(a.flowLibrary.widget, flowDetail)
+	flowModule.SetOffset(0.28)
 
-	mainSplit := container.NewVSplit(
-		container.NewBorder(a.statusBar.widget, nil, a.flowLibrary.widget, nil, a.workspace),
-		bottom,
+	stepModule := container.NewHSplit(a.stepTable.widget, a.stepProperty.widget)
+	stepModule.SetOffset(0.62)
+
+	a.workspace = container.NewStack(flowModule)
+	a.moduleTabs = container.NewAppTabs(
+		container.NewTabItemWithIcon("流程", theme.DocumentIcon(), flowModule),
+		container.NewTabItemWithIcon("步骤", theme.ListIcon(), stepModule),
+		container.NewTabItemWithIcon("运行", theme.MediaPlayIcon(), a.runPanel.widget),
+		container.NewTabItemWithIcon("历史", theme.HistoryIcon(), a.historyPanel.widget),
+		container.NewTabItemWithIcon("设置", theme.SettingsIcon(), a.settingsPanel.widget),
 	)
-	mainSplit.SetOffset(0.72)
+	a.moduleTabs.SetTabLocation(container.TabLocationTop)
 
-	a.mainWin.SetContent(mainSplit)
+	a.mainWin.SetContent(container.NewBorder(a.statusBar.widget, nil, nil, nil, a.moduleTabs))
 	a.refreshFlowList()
 	a.runPanel.refreshEnvironments()
 	a.historyPanel.refreshFilters()
@@ -325,6 +333,7 @@ func (a *App) runCurrentFlow() {
 		return
 	}
 	a.runPanel.reset()
+	a.runPanel.setRunning(true)
 	a.runStatuses = make([]runner.Status, len(a.currentFlow.Steps))
 	for i := range a.runStatuses {
 		a.runStatuses[i] = runner.StatusPending
@@ -395,6 +404,7 @@ func (a *App) onStepButton() {
 		a.stepRunner = nil
 		return
 	}
+	a.runPanel.setRunning(true)
 	a.runStatuses = make([]runner.Status, len(a.currentFlow.Steps))
 	for i := range a.runStatuses {
 		a.runStatuses[i] = runner.StatusPending
@@ -412,6 +422,7 @@ func (a *App) nextStep() {
 	if err != nil {
 		a.runPanel.log("单步执行错误：" + err.Error())
 		a.stepBtn.SetText("单步执行")
+		a.runPanel.setRunning(false)
 		a.stepRunner.Close()
 		a.stepRunner = nil
 		return
@@ -430,6 +441,7 @@ func (a *App) nextStep() {
 		result := a.stepRunner.Result()
 		a.runPanel.log(fmt.Sprintf("单步执行完成：%s（成功 %d，失败 %d）", result.Status, result.SuccessCount, result.FailedCount))
 		a.stepBtn.SetText("单步执行")
+		a.runPanel.setRunning(false)
 		a.stepRunner.Close()
 		a.stepRunner = nil
 		a.refreshHistory()
@@ -475,6 +487,7 @@ func (a *App) handleRunnerEvents() {
 				}
 				a.runPanel.setSummary(ev.RunResult)
 			}
+			a.runPanel.setRunning(false)
 			a.refreshHistory()
 		}
 	}

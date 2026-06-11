@@ -7,6 +7,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/google/uuid"
@@ -385,13 +386,59 @@ func (a *App) showEnvManager() {
 		}, a.mainWin)
 	})
 
+	tap := func(btn *widget.Button) func() {
+		return func() {
+			if btn != nil && btn.OnTapped != nil {
+				btn.OnTapped()
+			}
+		}
+	}
+	var envMoreBtn *widget.Button
+	envMoreBtn = widget.NewButtonWithIcon("环境操作", theme.MoreHorizontalIcon(), func() {
+		hasEnv := currentEnvID != ""
+		renameItem := fyne.NewMenuItemWithIcon("重命名 / 说明", theme.DocumentCreateIcon(), tap(renameEnvBtn))
+		copyItem := fyne.NewMenuItemWithIcon("复制环境", theme.ContentCopyIcon(), tap(copyEnvBtn))
+		deleteItem := fyne.NewMenuItemWithIcon("删除环境", theme.DeleteIcon(), tap(deleteEnvBtn))
+		activeItem := fyne.NewMenuItemWithIcon("设为当前", theme.ConfirmIcon(), tap(setActiveBtn))
+		renameItem.Disabled = !hasEnv
+		copyItem.Disabled = !hasEnv
+		deleteItem.Disabled = !hasEnv
+		activeItem.Disabled = !hasEnv
+		menu := fyne.NewMenu("环境操作",
+			renameItem,
+			copyItem,
+			deleteItem,
+			activeItem,
+			fyne.NewMenuItemSeparator(),
+			fyne.NewMenuItemWithIcon("导入配置", theme.DownloadIcon(), tap(importEnvBtn)),
+			fyne.NewMenuItemWithIcon("导出配置", theme.UploadIcon(), tap(exportEnvBtn)),
+		)
+		widget.ShowPopUpMenuAtRelativePosition(menu, a.mainWin.Canvas(), fyne.NewPos(0, envMoreBtn.Size().Height), envMoreBtn)
+	})
+	var varMoreBtn *widget.Button
+	varMoreBtn = widget.NewButtonWithIcon("变量操作", theme.MoreHorizontalIcon(), func() {
+		hasVar := currentVarID != ""
+		editItem := fyne.NewMenuItemWithIcon("编辑变量", theme.DocumentCreateIcon(), tap(editVarBtn))
+		deleteItem := fyne.NewMenuItemWithIcon("删除变量", theme.DeleteIcon(), tap(deleteVarBtn))
+		editItem.Disabled = !hasVar
+		deleteItem.Disabled = !hasVar
+		menu := fyne.NewMenu("变量操作", editItem, deleteItem)
+		widget.ShowPopUpMenuAtRelativePosition(menu, a.mainWin.Canvas(), fyne.NewPos(0, varMoreBtn.Size().Height), varMoreBtn)
+	})
+
 	left := container.NewBorder(
-		container.NewVBox(widget.NewLabel("环境列表"), newEnvBtn, renameEnvBtn, copyEnvBtn, deleteEnvBtn, setActiveBtn, importEnvBtn, exportEnvBtn),
+		container.NewVBox(
+			widget.NewLabel("环境列表"),
+			container.NewHBox(newEnvBtn, envMoreBtn),
+		),
 		nil, nil, nil,
 		list,
 	)
 	right := container.NewBorder(
-		container.NewVBox(widget.NewLabel("环境变量"), newVarBtn, editVarBtn, deleteVarBtn),
+		container.NewVBox(
+			widget.NewLabel("环境变量"),
+			container.NewHBox(newVarBtn, varMoreBtn),
+		),
 		nil, nil, nil,
 		varList,
 	)

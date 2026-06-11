@@ -112,6 +112,17 @@ func TestDate(t *testing.T) {
 	}
 }
 
+func TestDateTimeDefaultLayout(t *testing.T) {
+	eng := NewEngine()
+	v, err := eng.Evaluate("${datetime:}")
+	if err != nil {
+		t.Fatalf("evaluate datetime: %v", err)
+	}
+	if len(v) != 14 {
+		t.Fatalf("expected yyyyMMddHHmmss length, got %q", v)
+	}
+}
+
 func TestSeq(t *testing.T) {
 	eng := NewEngine()
 	v1, _ := eng.Evaluate("${seq}")
@@ -147,6 +158,35 @@ func TestInvalidRange(t *testing.T) {
 	}
 }
 
+func TestInvalidPlaceholderSyntaxPreservesText(t *testing.T) {
+	eng := NewEngine()
+	res, err := eng.EvaluateDetailed("prefix ${number:4")
+	if err == nil {
+		t.Fatal("expected unmatched placeholder error")
+	}
+	if res.Value != "prefix ${number:4" || res.MaskedValue != res.Value {
+		t.Fatalf("unexpected preserved value: %+v", res)
+	}
+}
+
+func TestInvalidTemplateBranches(t *testing.T) {
+	tests := []string{
+		"${-1}",
+		"${abc-2}",
+		"${2-abc}",
+		"${dev||stage}",
+		"${number:0}",
+		"${alpha:bad}",
+		"${alnum:-1}",
+		"${env:}",
+	}
+	for _, tc := range tests {
+		if _, err := NewEngineWithEnv(&testEnvProvider{}).Evaluate(tc); err == nil {
+			t.Fatalf("expected error for %s", tc)
+		}
+	}
+}
+
 func TestUndefinedVar(t *testing.T) {
 	eng := NewEngine()
 	_, err := eng.Evaluate("${var:undefined}")
@@ -163,6 +203,18 @@ func TestPreview(t *testing.T) {
 	for _, r := range results {
 		if len(r) != 4 {
 			t.Fatalf("expected 4 digit preview, got %s", r)
+		}
+	}
+}
+
+func TestPreviewReturnsErrors(t *testing.T) {
+	results := Preview("${bad}", 2)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 previews, got %d", len(results))
+	}
+	for _, r := range results {
+		if !strings.HasPrefix(r, "[error: ") {
+			t.Fatalf("expected preview error, got %s", r)
 		}
 	}
 }
@@ -202,6 +254,12 @@ func TestEnvVariableMissing(t *testing.T) {
 	_, err := eng.Evaluate("${env:MISSING}")
 	if err == nil {
 		t.Fatal("expected error for missing env var")
+	}
+}
+
+func TestEnvVariableWithoutProvider(t *testing.T) {
+	if _, err := NewEngine().Evaluate("${env:BASE_URL}"); err == nil {
+		t.Fatal("expected no environment selected error")
 	}
 }
 
@@ -256,5 +314,12 @@ func TestScanEnvVars(t *testing.T) {
 	}
 	if keys[0] != "BASE_URL" || keys[1] != "USER" {
 		t.Errorf("unexpected keys: %v", keys)
+	}
+}
+
+func TestScanEnvVarsIgnoresIncompleteAndDuplicates(t *testing.T) {
+	keys := ScanEnvVars("${env:A} ${env:A} ${env:B")
+	if len(keys) != 1 || keys[0] != "A" {
+		t.Fatalf("unexpected keys: %v", keys)
 	}
 }

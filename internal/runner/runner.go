@@ -20,25 +20,54 @@ type HistorySaver interface {
 	Save(result *RunResult) error
 }
 
+type browserController interface {
+	IsInstalled() bool
+	Install(browser.DownloadProgress) error
+	StartReplay(string) (int, error)
+}
+
+type cdpSession interface {
+	Context() context.Context
+	Close()
+}
+
+type stepExecutor interface {
+	ExecuteStep(context.Context, flow.Step, *template.Engine) *StepResult
+}
+
 // Runner executes flows via CDP.
 type Runner struct {
-	cfg     *config.RunnerConfig
-	browser *browser.Manager
-	cdp     *browser.CDPClient
-	history HistorySaver
-	events  chan Event
-	stopCh  chan struct{}
-	running bool
+	cfg               *config.RunnerConfig
+	browser           browserController
+	cdp               cdpSession
+	history           HistorySaver
+	events            chan Event
+	stopCh            chan struct{}
+	connectCDP        func(int) (cdpSession, error)
+	newActionExecutor func(context.Context, string, bool) stepExecutor
+	retrySleep        func(time.Duration)
+	running           bool
 }
 
 // NewRunner creates a new runner.
 func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySaver) *Runner {
+	var controller browserController
+	if bm != nil {
+		controller = bm
+	}
 	return &Runner{
-		cfg:     cfg,
-		browser: bm,
-		history: history,
-		events:  make(chan Event, 100),
-		stopCh:  make(chan struct{}, 1),
+		cfg:        cfg,
+		browser:    controller,
+		history:    history,
+		events:     make(chan Event, 100),
+		stopCh:     make(chan struct{}, 1),
+		retrySleep: time.Sleep,
+		connectCDP: func(port int) (cdpSession, error) {
+			return browser.Connect(port)
+		},
+		newActionExecutor: func(ctx context.Context, snapDir string, maskInputs bool) stepExecutor {
+			return NewActionExecutor(ctx, snapDir, maskInputs)
+		},
 	}
 }
 
@@ -97,6 +126,12 @@ func (r *Runner) RunFlow(f *flow.Flow, opts RunOptions) *RunResult {
 		return result
 	}
 
+	if r.browser == nil {
+		result.Status = StatusFailed
+		r.emit(Event{Type: EventLog, LogMessage: "Browser manager is not initialized"})
+		return result
+	}
+
 	if !r.browser.IsInstalled() {
 		if err := r.browser.Install(nil); err != nil {
 			result.Status = StatusFailed
@@ -117,7 +152,7 @@ func (r *Runner) RunFlow(f *flow.Flow, opts RunOptions) *RunResult {
 		r.emit(Event{Type: EventLog, LogMessage: "Start Chrome failed: " + err.Error()})
 		return result
 	}
-	cdp, err := browser.Connect(port)
+	cdp, err := r.connectCDP(port)
 	if err != nil {
 		result.Status = StatusFailed
 		r.emit(Event{Type: EventLog, LogMessage: "CDP connect failed: " + err.Error()})
@@ -133,7 +168,7 @@ func (r *Runner) RunFlow(f *flow.Flow, opts RunOptions) *RunResult {
 	}
 	snapDir := filepath.Join("data", "run-history", f.ID, runID)
 	os.MkdirAll(snapDir, 0755)
-	actExec := NewActionExecutor(r.cdp.Context(), snapDir, r.cfg.MaskInputValueInLogs)
+	actExec := r.newActionExecutor(r.cdp.Context(), snapDir, r.cfg.MaskInputValueInLogs)
 
 	for i := opts.StartStep; i < len(f.Steps); i++ {
 		select {
@@ -197,7 +232,7 @@ func (r *Runner) drainStopSignal() {
 	}
 }
 
-func (r *Runner) executeStepWithRetry(actExec *ActionExecutor, step flow.Step, eng *template.Engine) *StepResult {
+func (r *Runner) executeStepWithRetry(actExec stepExecutor, step flow.Step, eng *template.Engine) *StepResult {
 	retries := 0
 	if step.OnError == flow.ErrRetry {
 		retries = 2 // default retry count; could be configurable
@@ -219,7 +254,7 @@ func (r *Runner) executeStepWithRetry(actExec *ActionExecutor, step flow.Step, e
 			break
 		}
 		if attempt < retries {
-			time.Sleep(500 * time.Millisecond)
+			r.retrySleep(500 * time.Millisecond)
 		}
 	}
 	return res

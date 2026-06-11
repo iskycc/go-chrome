@@ -1,6 +1,8 @@
 package db
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -124,6 +126,111 @@ func TestSQLiteFlowStoreImportExportAndSearch(t *testing.T) {
 	}
 }
 
+func TestSQLiteFlowStoreListSortedLoadAndImportErrors(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	store, err := NewFlowStore(db)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	oldFlow := flow.NewFlow("Old")
+	newFlow := flow.NewFlow("New")
+	if err := store.Save(oldFlow); err != nil {
+		t.Fatalf("save old: %v", err)
+	}
+	if err := store.Save(newFlow); err != nil {
+		t.Fatalf("save new: %v", err)
+	}
+	oldUpdated := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	newUpdated := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Conn.Exec("UPDATE flows SET updated_at = ? WHERE id = ?", oldUpdated, oldFlow.ID); err != nil {
+		t.Fatalf("set old updated_at: %v", err)
+	}
+	if _, err := db.Conn.Exec("UPDATE flows SET updated_at = ? WHERE id = ?", newUpdated, newFlow.ID); err != nil {
+		t.Fatalf("set new updated_at: %v", err)
+	}
+	sorted, err := store.ListSorted()
+	if err != nil {
+		t.Fatalf("list sorted: %v", err)
+	}
+	if len(sorted) != 2 || sorted[0].ID != newFlow.ID {
+		t.Fatalf("expected newest flow first, got %+v", sorted)
+	}
+	loaded, err := store.Load(oldFlow.ID)
+	if err != nil {
+		t.Fatalf("load flow: %v", err)
+	}
+	if loaded.Name != oldFlow.Name {
+		t.Fatalf("unexpected loaded flow: %+v", loaded)
+	}
+
+	if _, err := store.Import(filepath.Join(dir, "missing.json")); err == nil {
+		t.Fatal("expected missing import file error")
+	}
+	badJSON := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(badJSON, []byte("{bad"), 0644); err != nil {
+		t.Fatalf("write bad json: %v", err)
+	}
+	if _, err := store.Import(badJSON); err == nil {
+		t.Fatal("expected invalid json import error")
+	}
+	invalidFlow := filepath.Join(dir, "invalid-flow.json")
+	if err := os.WriteFile(invalidFlow, []byte(`{"id":"","name":""}`), 0644); err != nil {
+		t.Fatalf("write invalid flow: %v", err)
+	}
+	if _, err := store.Import(invalidFlow); err == nil {
+		t.Fatal("expected invalid flow import error")
+	}
+	if err := store.Export("missing-flow", filepath.Join(dir, "missing-export.json")); err == nil {
+		t.Fatal("expected missing flow export error")
+	}
+}
+
+func TestFlowRepoListSortedAndSearchFilters(t *testing.T) {
+	db, err := Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewFlowRepo(db)
+	flows := []*flow.Flow{
+		{ID: "b", Name: "Beta", Description: "payment", Tags: []string{"billing"}},
+		{ID: "a", Name: "alpha", Description: "auth", Tags: []string{"login"}},
+	}
+	for _, f := range flows {
+		if err := repo.Save(f); err != nil {
+			t.Fatalf("save %s: %v", f.ID, err)
+		}
+	}
+	sorted, err := repo.ListSorted()
+	if err != nil {
+		t.Fatalf("list sorted: %v", err)
+	}
+	if len(sorted) != 2 || sorted[0].Name != "alpha" {
+		t.Fatalf("expected alpha first, got %+v", sorted)
+	}
+	byTag, err := repo.Search("", "billing")
+	if err != nil {
+		t.Fatalf("search tag: %v", err)
+	}
+	if len(byTag) != 1 || byTag[0].ID != "b" {
+		t.Fatalf("unexpected tag results: %+v", byTag)
+	}
+	noMatch, err := repo.Search("missing", "")
+	if err != nil {
+		t.Fatalf("search missing: %v", err)
+	}
+	if len(noMatch) != 0 {
+		t.Fatalf("expected no matches, got %+v", noMatch)
+	}
+}
+
 func TestEnvRepo(t *testing.T) {
 	db, err := Open(t.TempDir() + "/test.db")
 	if err != nil {
@@ -217,6 +324,41 @@ func TestEnvRepoVarsAndActiveEnvironment(t *testing.T) {
 	}
 }
 
+func TestEnvRepoMissingAndListVars(t *testing.T) {
+	db, err := Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewEnvRepo(db)
+	if _, err := repo.Get("missing"); err == nil {
+		t.Fatal("expected missing env by id")
+	}
+	if _, err := repo.GetByName("missing"); err == nil {
+		t.Fatal("expected missing env by name")
+	}
+	if _, err := repo.GetActive(); err == nil {
+		t.Fatal("expected missing active env")
+	}
+	env := &Environment{ID: "env", Name: "Env"}
+	if err := repo.Save(env); err != nil {
+		t.Fatalf("save env: %v", err)
+	}
+	for _, key := range []string{"B", "A"} {
+		if err := repo.SaveVar(&EnvironmentVariable{ID: "var-" + key, EnvironmentID: env.ID, Key: key, Value: key}); err != nil {
+			t.Fatalf("save var %s: %v", key, err)
+		}
+	}
+	vars, err := repo.ListVars(env.ID)
+	if err != nil {
+		t.Fatalf("list vars: %v", err)
+	}
+	if len(vars) != 2 || vars[0].Key != "A" || vars[1].Key != "B" {
+		t.Fatalf("expected vars ordered by key, got %+v", vars)
+	}
+}
+
 func TestEnvRepoImportExport(t *testing.T) {
 	dir := t.TempDir()
 	db1, err := Open(dir + "/source.db")
@@ -271,6 +413,41 @@ func TestEnvRepoImportExport(t *testing.T) {
 	}
 }
 
+func TestEnvRepoImportSkipsEmptyEntriesAndCreatesDefault(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	path := filepath.Join(dir, "env.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"environments":[{"name":"","variables":[{"key":"IGNORED","value":"x"}]}]}`), 0644); err != nil {
+		t.Fatalf("write env export: %v", err)
+	}
+	repo := NewEnvRepo(db)
+	if err := repo.Import(path); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	active, err := repo.GetActive()
+	if err != nil {
+		t.Fatalf("expected default active env: %v", err)
+	}
+	if active.Name != "默认环境" {
+		t.Fatalf("unexpected default env: %+v", active)
+	}
+	if err := repo.Import(filepath.Join(dir, "missing.json")); err == nil {
+		t.Fatal("expected missing import file error")
+	}
+	badJSON := filepath.Join(dir, "bad-env.json")
+	if err := os.WriteFile(badJSON, []byte("{bad"), 0644); err != nil {
+		t.Fatalf("write bad json: %v", err)
+	}
+	if err := repo.Import(badJSON); err == nil {
+		t.Fatal("expected bad json import error")
+	}
+}
+
 func TestRecentRepo(t *testing.T) {
 	db, err := Open(t.TempDir() + "/test.db")
 	if err != nil {
@@ -288,6 +465,33 @@ func TestRecentRepo(t *testing.T) {
 	}
 	if len(ids) != 3 || ids[0] != "a" {
 		t.Errorf("unexpected ids: %v", ids)
+	}
+}
+
+func TestRecentRepoEmptyLoadAndSave(t *testing.T) {
+	db, err := Open(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRecentRepo(db)
+	ids, err := repo.Load()
+	if err != nil {
+		t.Fatalf("load empty: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("expected empty recent ids, got %v", ids)
+	}
+	if err := repo.Save(nil); err != nil {
+		t.Fatalf("save nil: %v", err)
+	}
+	ids, err = repo.Load()
+	if err != nil {
+		t.Fatalf("load saved empty: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("expected empty saved recent ids, got %v", ids)
 	}
 }
 

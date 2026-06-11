@@ -22,8 +22,8 @@ copy README.md %PKGDIR%\
 copy FAQ.md %PKGDIR%\
 copy USER_GUIDE.md %PKGDIR%\
 
-REM Create data directory structure
-mkdir %PKGDIR%\data\flows
+REM Create runtime data directory. Flow data is stored in SQLite at data\go-chrome.db.
+mkdir %PKGDIR%\data
 mkdir %PKGDIR%\logs
 
 REM Create chrome directory placeholder

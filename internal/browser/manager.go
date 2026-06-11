@@ -42,6 +42,7 @@ func (m *Manager) ManifestPath() string {
 
 // LoadManifest reads the installed manifest if present.
 func (m *Manager) LoadManifest() error {
+	m.manifest = VersionManifest{}
 	path := m.ManifestPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -200,6 +201,9 @@ func (m *Manager) Install(progress DownloadProgress) error {
 		os.RemoveAll(tmpDir)
 		m.rollback()
 		return fmt.Errorf("move chrome dir: %w", err)
+	}
+	if rel, err := filepath.Rel(tmpDir, exe); err == nil {
+		exe = filepath.Join(m.cfg.InstallDir, rel)
 	}
 
 	m.manifest = VersionManifest{
