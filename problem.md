@@ -503,3 +503,9 @@ ok  go-chrome/internal/db       1.439s
   - 新增 `internal/browser/cdp_test.go` 单元测试
 - 如未来 Chrome 升级到 150+ 仍出问题，先确认 `/json/list` 是否能正常返回 page target。如果能，那只是启动参数问题；如果不能，则需要排查更底层的 Chrome sandbox / 网络服务问题。
 - 注意不要提交 `data/`、`logs/`、`chrome/`、`go-chrome` 二进制、`stdout*.txt`、`stderr*.txt` 等运行产物。
+
+## UI 优化完成项（2026-06-12 UI 优化）
+
+- [x] UI 页面不够美观、字体变形
+- [x] 常用运行操作必须切到运行页
+- [x] 环境管理入口不明显

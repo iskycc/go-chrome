@@ -47,6 +47,7 @@ type App struct {
 	runPanel      *runPanel
 	historyPanel  *historyPanel
 	settingsPanel *settingsPanel
+	envPanel      *envPanel
 	moduleTabs    *container.AppTabs
 	workspace     *fyne.Container
 	editorArea    fyne.CanvasObject
@@ -58,7 +59,7 @@ type App struct {
 	chromeTicker *time.Ticker
 	chromeDone   chan struct{}
 
-	stepBtn *widget.Button
+	globalToolbar *globalToolbar
 }
 
 // runHistoryAdapter adapts db.RunRepo to runner.HistorySaver.
@@ -159,6 +160,7 @@ func (a *App) buildUI() {
 	onDirty := func() { a.markDirty() }
 
 	a.statusBar = newStatusBar(a)
+	a.globalToolbar = newGlobalToolbar(a)
 	a.flowLibrary = newFlowLibraryPanel(a)
 	a.flowEditor = newFlowEditorPanel(a, onDirty)
 	a.stepTable = newStepTablePanel(a, onDirty)
@@ -166,6 +168,7 @@ func (a *App) buildUI() {
 	a.runPanel = newRunPanel(a)
 	a.historyPanel = newHistoryPanel(a)
 	a.settingsPanel = newSettingsPanel(a)
+	a.envPanel = newEnvPanel(a)
 
 	a.editorArea = a.flowEditor.widget
 	a.emptyState = a.buildEmptyState()
@@ -182,15 +185,23 @@ func (a *App) buildUI() {
 	a.moduleTabs = container.NewAppTabs(
 		container.NewTabItemWithIcon("流程", theme.DocumentIcon(), flowModule),
 		container.NewTabItemWithIcon("步骤", theme.ListIcon(), stepModule),
-		container.NewTabItemWithIcon("运行", theme.MediaPlayIcon(), a.runPanel.widget),
+		container.NewTabItemWithIcon("环境配置", theme.SettingsIcon(), a.envPanel.widget),
 		container.NewTabItemWithIcon("历史", theme.HistoryIcon(), a.historyPanel.widget),
 		container.NewTabItemWithIcon("设置", theme.SettingsIcon(), a.settingsPanel.widget),
+		container.NewTabItemWithIcon("运行详情", theme.MediaPlayIcon(), a.runPanel.widget),
 	)
 	a.moduleTabs.SetTabLocation(container.TabLocationTop)
 
-	a.mainWin.SetContent(container.NewBorder(a.statusBar.widget, nil, nil, nil, a.moduleTabs))
+	content := container.NewBorder(
+		a.statusBar.widget,
+		nil,
+		nil,
+		nil,
+		container.NewBorder(a.globalToolbar.widget, nil, nil, nil, a.moduleTabs),
+	)
+	a.mainWin.SetContent(content)
 	a.refreshFlowList()
-	a.runPanel.refreshEnvironments()
+	a.refreshEnvironmentSelectors()
 	a.historyPanel.refreshFilters()
 	a.restoreLastFlowSelection()
 }
@@ -215,9 +226,12 @@ func (a *App) startChromeTicker() {
 				fyne.Do(func() {
 					st := a.browserMgr.Status()
 					a.statusBar.setChrome(st)
+					managed := st == browser.ChromeRunning || st == browser.ChromeStarting
 					if a.runPanel != nil {
-						managed := st == browser.ChromeRunning || st == browser.ChromeStarting
 						a.runPanel.setChromeManaged(managed)
+					}
+					if a.globalToolbar != nil {
+						a.globalToolbar.setChromeManaged(managed)
 					}
 				})
 			case <-a.chromeDone:
@@ -394,7 +408,9 @@ func (a *App) stopCurrentRun() {
 		a.stepRunner.Stop()
 		a.runPanel.log("已停止单步执行")
 		a.runPanel.setRunning(false)
-		a.stepBtn.SetText("单步执行")
+		if a.globalToolbar != nil {
+			a.globalToolbar.setStepButtonText("单步执行")
+		}
 		a.stepRunner = nil
 		return
 	}
@@ -410,6 +426,7 @@ func (a *App) runCurrentFlow() {
 		dialog.ShowInformation("提示", "当前已有流程正在运行", a.mainWin)
 		return
 	}
+	startStep := a.selectedStartStep()
 	// Check environment variables
 	if missing := a.checkEnvVars(); len(missing) > 0 {
 		dialog.ShowError(fmt.Errorf("运行前检查失败，缺少环境变量: %v", missing), a.mainWin)
@@ -422,6 +439,9 @@ func (a *App) runCurrentFlow() {
 	}
 	a.runPanel.reset()
 	a.runPanel.setRunning(true)
+	if a.globalToolbar != nil {
+		a.globalToolbar.setRunning(true)
+	}
 	a.runStatuses = make([]runner.Status, len(a.currentFlow.Steps))
 	for i := range a.runStatuses {
 		a.runStatuses[i] = runner.StatusPending
@@ -429,12 +449,26 @@ func (a *App) runCurrentFlow() {
 	a.stepTable.setStatuses(a.runStatuses)
 	go func() {
 		res := a.runner.RunFlow(a.currentFlow, runner.RunOptions{
-			StartStep:     0,
+			StartStep:     startStep,
 			EnvironmentID: envID,
 			EnvProvider:   envProvider,
 		})
 		a.runPanel.setSummary(res)
 	}()
+}
+
+// selectedStartStep returns the step index selected in the step table,
+// or 0 if no step is selected. This lets the user run a flow from a
+// specific step by selecting it before clicking Run.
+func (a *App) selectedStartStep() int {
+	if a.stepTable == nil {
+		return 0
+	}
+	idx := a.stepTable.selectedIndex()
+	if idx < 0 || a.currentFlow == nil || idx >= len(a.currentFlow.Steps) {
+		return 0
+	}
+	return idx
 }
 
 func (a *App) checkEnvVars() []string {
@@ -445,14 +479,17 @@ func (a *App) checkEnvVars() []string {
 	if err != nil {
 		return []string{"无法获取运行环境: " + err.Error()}
 	}
-	return runner.MissingEnvVars(a.currentFlow, 0, provider)
+	return runner.MissingEnvVars(a.currentFlow, a.selectedStartStep(), provider)
 }
 
 func (a *App) currentEnvProvider() (string, template.EnvProvider, error) {
 	if a.envRepo == nil {
 		return "", nil, fmt.Errorf("环境仓库未初始化")
 	}
-	selectedName := a.runPanel.envSelect.Selected
+	selectedName := ""
+	if a.globalToolbar != nil && a.globalToolbar.envSelect != nil {
+		selectedName = a.globalToolbar.envSelect.Selected
+	}
 	if selectedName == "" {
 		selectedName = "默认环境"
 	}
@@ -461,6 +498,17 @@ func (a *App) currentEnvProvider() (string, template.EnvProvider, error) {
 		return "", nil, err
 	}
 	return env.ID, a.envRepo.EnvProvider(env.ID), nil
+}
+
+// refreshEnvironmentSelectors updates both the global toolbar and run panel
+// environment dropdowns, if they exist.
+func (a *App) refreshEnvironmentSelectors() {
+	if a.globalToolbar != nil {
+		a.globalToolbar.refreshEnvironments()
+	}
+	if a.runPanel != nil {
+		a.runPanel.refreshEnvironments()
+	}
 }
 
 func (a *App) onStepButton() {
@@ -492,13 +540,17 @@ func (a *App) onStepButton() {
 		a.stepRunner = nil
 		return
 	}
-	a.runPanel.setRunning(true)
+	if a.globalToolbar != nil {
+		a.globalToolbar.setRunning(true)
+	}
 	a.runStatuses = make([]runner.Status, len(a.currentFlow.Steps))
 	for i := range a.runStatuses {
 		a.runStatuses[i] = runner.StatusPending
 	}
 	a.stepTable.setStatuses(a.runStatuses)
-	a.stepBtn.SetText("下一步")
+	if a.globalToolbar != nil {
+		a.globalToolbar.setStepButtonText("下一步")
+	}
 	a.nextStep()
 }
 
@@ -509,7 +561,10 @@ func (a *App) nextStep() {
 	res, finished, err := a.stepRunner.Next()
 	if err != nil {
 		a.runPanel.log("单步执行错误：" + err.Error())
-		a.stepBtn.SetText("单步执行")
+		if a.globalToolbar != nil {
+			a.globalToolbar.setStepButtonText("单步执行")
+			a.globalToolbar.setRunning(false)
+		}
 		a.runPanel.setRunning(false)
 		a.stepRunner.Close()
 		a.stepRunner = nil
@@ -528,7 +583,10 @@ func (a *App) nextStep() {
 	if finished {
 		result := a.stepRunner.Result()
 		a.runPanel.log(fmt.Sprintf("单步执行完成：%s（成功 %d，失败 %d）", result.Status, result.SuccessCount, result.FailedCount))
-		a.stepBtn.SetText("单步执行")
+		if a.globalToolbar != nil {
+			a.globalToolbar.setStepButtonText("单步执行")
+			a.globalToolbar.setRunning(false)
+		}
 		a.runPanel.setRunning(false)
 		a.stepRunner.Close()
 		a.stepRunner = nil
@@ -557,6 +615,9 @@ func (a *App) handleRunnerEvents() {
 			}
 			a.runPanel.setProgress(ev.StepIndex+1, totalSteps, stepName)
 			a.runPanel.setCurrentStep(stepName)
+			if a.globalToolbar != nil {
+				a.globalToolbar.setProgress(ev.StepIndex+1, totalSteps, stepName)
+			}
 			a.setStepStatus(ev.StepIndex, runner.StatusRunning)
 			a.statusBar.setRun(RunRunning, ev.StepIndex+1, totalSteps, "")
 		case runner.EventStepDone:
@@ -576,6 +637,9 @@ func (a *App) handleRunnerEvents() {
 				a.runPanel.setSummary(ev.RunResult)
 			}
 			a.runPanel.setRunning(false)
+			if a.globalToolbar != nil {
+				a.globalToolbar.setRunning(false)
+			}
 			a.refreshHistory()
 		}
 	}
@@ -613,6 +677,9 @@ func (a *App) setStepStatus(index int, status runner.Status) {
 func (a *App) refreshFlowList() {
 	flows, _ := a.flowStore.ListSorted()
 	a.flowLibrary.setFlows(flows)
+	if a.globalToolbar != nil {
+		a.globalToolbar.refreshFlows(flows)
+	}
 	a.updateEmptyState(len(flows) == 0)
 }
 

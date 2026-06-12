@@ -67,7 +67,9 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 	p.tagFilter.SetSelected("全部标签")
 
 	newBtn := widget.NewButtonWithIcon("新建", theme.ContentAddIcon(), func() { p.app.createNewFlow() })
+	newBtn.Importance = widget.HighImportance
 	saveBtn := widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() { p.app.saveCurrentFlow() })
+	saveBtn.Importance = widget.MediumImportance
 	var moreBtn *widget.Button
 	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
 		hasSelection := p.selectedIndex >= 0 && p.selectedIndex < len(p.flows)

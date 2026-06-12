@@ -60,8 +60,12 @@ func newStepPropertyPanel(app *App, onApplied func()) *stepPropertyPanel {
 	p.initWidgets()
 	p.initForm()
 	p.widget = container.NewBorder(
-		widget.NewLabelWithStyle("3. 步骤属性", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewButton("应用到当前步骤", func() { p.apply() }),
+		widget.NewLabelWithStyle("步骤属性", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		func() *widget.Button {
+			btn := widget.NewButton("应用到当前步骤", func() { p.apply() })
+			btn.Importance = widget.HighImportance
+			return btn
+		}(),
 		nil, nil,
 		container.NewScroll(p.form),
 	)

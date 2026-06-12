@@ -103,7 +103,7 @@ type statusBar struct {
 
 func newStatusBar(app *App) *statusBar {
 	sb := &statusBar{app: app}
-	sb.flow = newStatusItem("当前流程：", "未选择", statusColorGray(), 180)
+	sb.flow = newStatusItem("当前流程：", "未选择", statusColorGray(), 220)
 	sb.save = newStatusItem("保存状态：", "未修改", statusColorGreen(), 110)
 	sb.chrome = newStatusItem("Chrome：", "未安装", statusColorYellow(), 110)
 	sb.run = newStatusItem("运行状态：", "空闲", statusColorGray(), 160)

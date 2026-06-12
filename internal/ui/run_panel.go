@@ -3,12 +3,15 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -26,9 +29,8 @@ type runPanel struct {
 	summary      *widget.Label
 	currentStep  *widget.Label
 	artifactBox  *fyne.Container
-	envSelect    *widget.Select
-	stopBtn      *widget.Button
 	closeChBtn   *widget.Button
+	artifactDir  string
 }
 
 func newRunPanel(app *App) *runPanel {
@@ -37,7 +39,7 @@ func newRunPanel(app *App) *runPanel {
 	p.progressBar = widget.NewProgressBar()
 	p.progressBar.Min = 0
 	p.progressBar.Max = 1
-	p.progressText = widget.NewLabel("就绪")
+	p.progressText = newTruncatingLabel("就绪")
 
 	p.logBox = container.NewVBox()
 	p.logScroll = container.NewScroll(p.logBox)
@@ -46,17 +48,16 @@ func newRunPanel(app *App) *runPanel {
 	p.currentStep = newTruncatingLabel("")
 	p.artifactBox = container.NewHBox()
 
-	runBtn := widget.NewButtonWithIcon("运行整个流程", theme.MediaPlayIcon(), func() {
-		go p.app.runCurrentFlow()
+	clearLogBtn := widget.NewButtonWithIcon("清空日志", theme.DeleteIcon(), func() {
+		p.clearLog()
 	})
-	stepBtn := widget.NewButtonWithIcon("单步执行", theme.MediaReplayIcon(), func() {
-		go p.app.onStepButton()
+	copyLogBtn := widget.NewButtonWithIcon("复制日志", theme.ContentCopyIcon(), func() {
+		p.copyLog()
 	})
-	p.app.stepBtn = stepBtn
-	p.stopBtn = widget.NewButtonWithIcon("停止", theme.MediaStopIcon(), func() {
-		p.app.stopCurrentRun()
+	openArtifactBtn := widget.NewButtonWithIcon("打开产物目录", theme.FolderOpenIcon(), func() {
+		p.openArtifactDir()
 	})
-	p.stopBtn.Hide()
+
 	p.closeChBtn = widget.NewButtonWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() {
 		p.app.closeManagedChrome()
 	})
@@ -66,9 +67,7 @@ func newRunPanel(app *App) *runPanel {
 	var moreBtn *widget.Button
 	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
 		menu := fyne.NewMenu("运行操作",
-			fyne.NewMenuItemWithIcon("启动浏览器", theme.ViewRefreshIcon(), func() { go p.app.startBrowser() }),
 			fyne.NewMenuItemWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() { p.app.closeManagedChrome() }),
-			fyne.NewMenuItemWithIcon("管理环境", theme.SettingsIcon(), func() { p.app.showEnvManager() }),
 			fyne.NewMenuItemWithIcon("浏览器下载配置", theme.ComputerIcon(), func() {
 				if p.app.moduleTabs != nil {
 					p.app.moduleTabs.SelectIndex(4)
@@ -78,38 +77,26 @@ func newRunPanel(app *App) *runPanel {
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
 	})
 
-	p.envSelect = widget.NewSelect([]string{"默认环境"}, func(name string) {
-		if p.app.envRepo == nil || name == "" {
-			return
-		}
-		env, err := p.app.envRepo.GetByName(name)
-		if err != nil {
-			p.log("切换环境失败：" + err.Error())
-			return
-		}
-		if err := p.app.envRepo.SetActive(env.ID); err != nil {
-			p.log("保存当前环境失败：" + err.Error())
-			return
-		}
-	})
-	p.envSelect.SetSelected("默认环境")
-
-	controls := container.NewHBox(runBtn, stepBtn, p.stopBtn, p.closeChBtn, moreBtn)
+	progressArea := container.NewVBox(p.progressBar, p.progressText)
+	actionBtns := container.NewHBox(clearLogBtn, copyLogBtn, openArtifactBtn, moreBtn)
+	topBar := container.NewBorder(nil, nil, progressArea, actionBtns)
 
 	rightPanel := container.NewVBox(
 		widget.NewLabelWithStyle("运行摘要", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		p.summary,
+		widget.NewLabelWithStyle("当前步骤", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		p.currentStep,
+		widget.NewLabelWithStyle("产物", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		p.artifactBox,
 	)
 
-	topBar := container.NewVBox(
-		container.NewBorder(nil, nil, p.progressText, controls, p.progressBar),
-		container.NewHBox(widget.NewLabel("当前环境："), p.envSelect),
-	)
+	bottomBar := container.NewHBox(p.closeChBtn)
 
 	p.widget = container.NewBorder(
 		topBar,
-		container.NewHBox(p.currentStep, p.artifactBox),
-		rightPanel, nil,
+		bottomBar,
+		nil,
+		rightPanel,
 		p.logScroll,
 	)
 	return p
@@ -172,11 +159,16 @@ func (p *runPanel) setCurrentStep(name string) {
 func (p *runPanel) setArtifacts(screenshot, htmlSnap string) {
 	fyne.Do(func() {
 		p.artifactBox.Objects = nil
+		p.artifactDir = ""
 		if screenshot != "" {
 			p.artifactBox.Objects = append(p.artifactBox.Objects, newTruncatingLabel("截图："+screenshot))
+			p.artifactDir = filepath.Dir(screenshot)
 		}
 		if htmlSnap != "" {
 			p.artifactBox.Objects = append(p.artifactBox.Objects, newTruncatingLabel("HTML："+htmlSnap))
+			if p.artifactDir == "" {
+				p.artifactDir = filepath.Dir(htmlSnap)
+			}
 		}
 		p.artifactBox.Refresh()
 	})
@@ -185,6 +177,7 @@ func (p *runPanel) setArtifacts(screenshot, htmlSnap string) {
 func (p *runPanel) clearArtifacts() {
 	fyne.Do(func() {
 		p.artifactBox.Objects = nil
+		p.artifactDir = ""
 		p.artifactBox.Refresh()
 	})
 }
@@ -199,16 +192,8 @@ func (p *runPanel) reset() {
 }
 
 func (p *runPanel) setRunning(running bool) {
-	fyne.Do(func() {
-		if p.stopBtn == nil {
-			return
-		}
-		if running {
-			p.stopBtn.Show()
-		} else {
-			p.stopBtn.Hide()
-		}
-	})
+	// Running state is now handled by the global toolbar; kept for caller compatibility.
+	_ = running
 }
 
 func (p *runPanel) setChromeManaged(managed bool) {
@@ -225,27 +210,42 @@ func (p *runPanel) setChromeManaged(managed bool) {
 }
 
 func (p *runPanel) refreshEnvironments() {
-	if p.app.envRepo == nil {
-		return
-	}
-	envs, err := p.app.envRepo.List()
-	if err != nil {
-		return
-	}
-	var names []string
-	var active string
-	for _, e := range envs {
-		names = append(names, e.Name)
-		if e.IsActive {
-			active = e.Name
-		}
-	}
-	if len(names) == 0 {
-		names = []string{"默认环境"}
-		active = "默认环境"
-	}
+	// Environment selection moved to the global toolbar; kept for caller compatibility.
+}
+
+func (p *runPanel) clearLog() {
 	fyne.Do(func() {
-		p.envSelect.Options = names
-		p.envSelect.SetSelected(active)
+		p.logBox.Objects = nil
+		p.logBox.Refresh()
+	})
+}
+
+func (p *runPanel) copyLog() {
+	fyne.Do(func() {
+		var lines []string
+		for _, obj := range p.logBox.Objects {
+			if t, ok := obj.(*canvas.Text); ok {
+				lines = append(lines, t.Text)
+			}
+		}
+		p.app.fyneApp.Clipboard().SetContent(strings.Join(lines, "\n"))
+		p.log("日志已复制到剪贴板")
+	})
+}
+
+func (p *runPanel) openArtifactDir() {
+	fyne.Do(func() {
+		if p.artifactDir == "" {
+			p.log("暂无产物目录")
+			return
+		}
+		uri, err := url.Parse(storage.NewFileURI(p.artifactDir).String())
+		if err != nil {
+			p.log("打开产物目录失败：" + err.Error())
+			return
+		}
+		if err := p.app.fyneApp.OpenURL(uri); err != nil {
+			p.log("打开产物目录失败：" + err.Error())
+		}
 	})
 }

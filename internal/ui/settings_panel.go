@@ -61,6 +61,7 @@ func newSettingsPanel(app *App) *settingsPanel {
 	saveBtn := widget.NewButtonWithIcon("保存配置", theme.DocumentSaveIcon(), func() {
 		p.save()
 	})
+	saveBtn.Importance = widget.HighImportance
 	resetBtn := widget.NewButtonWithIcon("恢复默认", theme.ViewRefreshIcon(), func() {
 		p.load(config.Default().Chrome)
 		p.statusLabel.SetText("已恢复默认值，点击保存后生效")

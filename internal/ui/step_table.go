@@ -30,8 +30,10 @@ func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
 	p.initTable()
 
 	addBtn := widget.NewButtonWithIcon("新增步骤", theme.ContentAddIcon(), func() { p.showAddStepDialog() })
+	addBtn.Importance = widget.HighImportance
 	copyBtn := widget.NewButtonWithIcon("复制", theme.ContentCopyIcon(), func() { p.copyStep() })
 	delBtn := widget.NewButtonWithIcon("删除", theme.DeleteIcon(), func() { p.deleteStep() })
+	delBtn.Importance = widget.DangerImportance
 	upBtn := widget.NewButtonWithIcon("上移", theme.MoveUpIcon(), func() { p.moveStep(-1) })
 	downBtn := widget.NewButtonWithIcon("下移", theme.MoveDownIcon(), func() { p.moveStep(1) })
 	p.selectedBar = container.NewHBox(widget.NewLabel("选中步骤："), copyBtn, delBtn, upBtn, downBtn)
@@ -39,7 +41,7 @@ func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
 
 	p.widget = container.NewBorder(
 		container.NewVBox(
-			widget.NewLabelWithStyle("2. 步骤编排", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("步骤编排", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			container.NewHBox(addBtn),
 			p.selectedBar,
 		),

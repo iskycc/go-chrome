@@ -105,3 +105,15 @@
   chrome.exe               # Chrome for Testing
   chrome-version.json      # 版本清单
 ```
+
+## 15. 为什么内置了 Cascadia Code 字体？
+
+Windows 中文环境下 Fyne 默认字体组合可能导致部分文本变形。Cascadia Code SemiLight 提供稳定的英文/数字/等宽显示，中文会由系统字体回退。
+
+## 16. 环境配置入口在哪里？
+
+顶部 tab 中的“环境配置”页面，不再隐藏在运行页菜单中。
+
+## 17. 运行按钮在哪里？
+
+运行、单步、停止已移到全局操作栏，任意页面都可用。

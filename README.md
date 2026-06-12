@@ -20,6 +20,13 @@ Go Chrome CDP Automation 是一个 Windows 桌面 GUI 工具，用 Go、Fyne 和
 - 流程以 JSON 结构化文件保存到 `./data/flows`。
 - 执行失败时保存截图和页面 HTML 到 `./data/run-history`。
 
+### UI 特性
+
+- 内置 Cascadia Code SemiLight 字体，避免 Windows 中文环境字体变形。
+- 全局操作栏：流程选择、保存、启动浏览器、运行、单步执行、停止、环境选择始终可见。
+- 独立的“环境配置”tab，集中管理环境变量。
+- “运行详情”tab 专注于日志、摘要和产物。
+
 ## 离线运行说明
 
 编译后的程序可以在完全离线环境运行，但需要满足以下条件：
