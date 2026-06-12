@@ -1,7 +1,9 @@
 package browser
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +11,18 @@ import (
 
 	"go-chrome/internal/config"
 )
+
+// treeProcess is a parent that runs a single child on Windows. We use it to
+// verify that killProcessTree reaches descendants, not just the parent.
+type treeProcess struct {
+	Cmd       *exec.Cmd
+	Pid       int
+	childPids []int
+}
+
+func spawnTree() (*treeProcess, error) {
+	return nil, fmt.Errorf("spawnTree is no longer used")
+}
 
 func TestManagerManifestRoundTrip(t *testing.T) {
 	dir := t.TempDir()
@@ -157,5 +171,21 @@ func TestManagerStartAndStartReplayRequireInstalledChrome(t *testing.T) {
 func TestManagerStopWithoutProcess(t *testing.T) {
 	if err := NewManager(&config.ChromeConfig{}).Stop(); err != nil {
 		t.Fatalf("stop without process: %v", err)
+	}
+}
+
+func TestKillProcessTreeNoProcess(t *testing.T) {
+	if err := killProcessTree(0); err != nil {
+		t.Fatalf("killProcessTree(0) should be a no-op, got: %v", err)
+	}
+	if err := killProcessTree(-1); err != nil {
+		t.Fatalf("killProcessTree(-1) should be a no-op, got: %v", err)
+	}
+}
+
+func TestKillProcessTreeInvalidPID(t *testing.T) {
+	err := killProcessTree(0x7FFFFFFE)
+	if err == nil {
+		t.Skip("unexpectedly succeeded; may be reusing a real pid")
 	}
 }

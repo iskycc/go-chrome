@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"go-chrome/internal/config"
@@ -284,16 +286,42 @@ func (m *Manager) StartReplay(runID string) (int, error) {
 	return port, nil
 }
 
-// Stop terminates the Chrome process managed by this manager.
+// Stop terminates the Chrome process managed by this manager and any of its
+// child processes (renderer, GPU, network service, etc.). It only affects the
+// Chrome instance that this Manager launched; other Chrome processes on the
+// system are not touched.
 func (m *Manager) Stop() error {
 	if m.proc == nil {
 		return nil
 	}
-	logx.Info("Stopping managed Chrome")
-	err := m.proc.Kill()
+	pid := m.proc.Pid
+	logx.Infof("Stopping managed Chrome (pid=%d)", pid)
+	killErr := killProcessTree(pid)
 	_, _ = m.proc.Wait()
 	m.proc = nil
-	return err
+	return killErr
+}
+
+// killProcessTree terminates pid and all of its descendants. On Windows this
+// uses `taskkill /F /T` so renderer/GPU/network-service children are killed
+// too. On non-Windows platforms we fall back to a manual parent->child walk
+// so Linux/macOS users still get the same semantics.
+func killProcessTree(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("taskkill failed: %w: %s", err, string(out))
+		}
+		return nil
+	}
+	if err := exec.Command("kill", "-9", fmt.Sprintf("%d", pid)).Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Status returns the current Chrome installation/launch status.

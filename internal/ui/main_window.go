@@ -198,7 +198,12 @@ func (a *App) startChromeTicker() {
 			select {
 			case <-a.chromeTicker.C:
 				fyne.Do(func() {
-					a.statusBar.setChrome(a.browserMgr.Status())
+					st := a.browserMgr.Status()
+					a.statusBar.setChrome(st)
+					if a.runPanel != nil {
+						managed := st == browser.ChromeRunning || st == browser.ChromeStarting
+						a.runPanel.setChromeManaged(managed)
+					}
 				})
 			case <-a.chromeDone:
 				return
@@ -321,6 +326,32 @@ func (a *App) startBrowser() {
 		return
 	}
 	a.runPanel.log(fmt.Sprintf("Chrome 已启动，调试端口：%d", port))
+}
+
+// closeManagedChrome terminates the Chrome instance that this app started.
+// It only affects the process tracked by the browser Manager; user-launched
+// Chrome windows are not touched. A confirmation dialog is shown to avoid
+// accidentally killing a running browser session.
+func (a *App) closeManagedChrome() {
+	st := a.browserMgr.Status()
+	if st != browser.ChromeRunning && st != browser.ChromeStarting {
+		a.runPanel.log("本程序未启动任何 Chrome，无需关闭")
+		return
+	}
+	dialog.ShowConfirm("关闭 Chrome", "确认关闭本程序启动的 Chrome？\n（不会影响用户手动打开的 Chrome）", func(ok bool) {
+		if !ok {
+			return
+		}
+		if a.runner != nil && a.runner.IsRunning() {
+			a.runner.Stop()
+		}
+		if err := a.browserMgr.Stop(); err != nil {
+			a.runPanel.log("关闭 Chrome 失败：" + err.Error())
+			fyne.Do(func() { dialog.ShowError(err, a.mainWin) })
+			return
+		}
+		a.runPanel.log("已关闭本程序启动的 Chrome")
+	}, a.mainWin)
 }
 
 func (a *App) runCurrentFlow() {

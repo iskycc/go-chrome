@@ -28,6 +28,7 @@ type runPanel struct {
 	artifactBox  *fyne.Container
 	envSelect    *widget.Select
 	stopBtn      *widget.Button
+	closeChBtn   *widget.Button
 }
 
 func newRunPanel(app *App) *runPanel {
@@ -56,11 +57,17 @@ func newRunPanel(app *App) *runPanel {
 		p.app.runner.Stop()
 	})
 	p.stopBtn.Hide()
+	p.closeChBtn = widget.NewButtonWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() {
+		p.app.closeManagedChrome()
+	})
+	p.closeChBtn.Disable()
+	p.closeChBtn.Importance = widget.MediumImportance
 
 	var moreBtn *widget.Button
 	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
 		menu := fyne.NewMenu("运行操作",
 			fyne.NewMenuItemWithIcon("启动浏览器", theme.ViewRefreshIcon(), func() { go p.app.startBrowser() }),
+			fyne.NewMenuItemWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() { p.app.closeManagedChrome() }),
 			fyne.NewMenuItemWithIcon("管理环境", theme.SettingsIcon(), func() { p.app.showEnvManager() }),
 			fyne.NewMenuItemWithIcon("浏览器下载配置", theme.ComputerIcon(), func() {
 				if p.app.moduleTabs != nil {
@@ -87,7 +94,7 @@ func newRunPanel(app *App) *runPanel {
 	})
 	p.envSelect.SetSelected("默认环境")
 
-	controls := container.NewHBox(runBtn, stepBtn, p.stopBtn, moreBtn)
+	controls := container.NewHBox(runBtn, stepBtn, p.stopBtn, p.closeChBtn, moreBtn)
 
 	rightPanel := container.NewVBox(
 		widget.NewLabelWithStyle("运行摘要", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -200,6 +207,19 @@ func (p *runPanel) setRunning(running bool) {
 			p.stopBtn.Show()
 		} else {
 			p.stopBtn.Hide()
+		}
+	})
+}
+
+func (p *runPanel) setChromeManaged(managed bool) {
+	fyne.Do(func() {
+		if p.closeChBtn == nil {
+			return
+		}
+		if managed {
+			p.closeChBtn.Enable()
+		} else {
+			p.closeChBtn.Disable()
 		}
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,6 +81,40 @@ func buildNavigateStep(t *testing.T, name, url string) flow.Step {
 	s := flow.NewStep(name, flow.StepNavigate)
 	s.Target = flow.Target{Strategy: flow.TargetXPath, Value: url}
 	return s
+}
+
+func TestManagerStopTerminatesChromeProcess(t *testing.T) {
+	e := launchChrome(t, "stop-test")
+	if !chromeProcessRunning(e.port) {
+		e.cleanup()
+		t.Fatalf("chrome should be running before Stop()")
+	}
+	if err := e.mgr.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !chromeProcessRunning(e.port) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("chrome still running on port %d after Stop()", e.port)
+}
+
+func chromeProcessRunning(port int) bool {
+	cmd := exec.Command("netstat", "-ano")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	needle := fmt.Sprintf(":%d ", port)
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, needle) && strings.Contains(line, "LISTENING") {
+			return true
+		}
+	}
+	return false
 }
 
 func buildInputStep(t *testing.T, name, xpath string, mode flow.InputMode, text string, maskInLogs bool) flow.Step {

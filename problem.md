@@ -30,6 +30,7 @@
 | 16 | **Chrome 149 下 `Target.createTarget` 失败导致 CDP 连接阻塞** | `chromedp.NewRemoteAllocator` 的远程上下文默认会创建新 tab，触发环境中失败的 `Target.createTarget` 路径 | 启动参数追加 `about:blank` 保证存在 page target；`browser.Connect()` 先通过 `/json/list` 选择已有 page，并用 `chromedp.WithTargetID` 绑定，避免默认创建新 tab；无 page 时才用 HTTP `/json/new` 兜底 |
 | 17 | **GUI 点击运行后"无操作"且日志超时**（user-reported） | 流程从 `ListSorted()` 加载时**不包含 steps**（DB 优化设计，避免 N+1 查询），`flow_library.go` 的 `OnSelected` 把不含 steps 的 flow 传给 runner，导致 runner 立即 `StatusFailed` | `flow_library.go:54` 在 `OnSelected` 时改用 `flowStore.Load(id)` 重新加载完整流程（含 steps） |
 | 18 | **DevToolsActivePort 永远找不到**（user-reported） | `app-config.json` 的 `installDir` / `userDataDir` 是相对路径（如 `./chrome`、`./data/chrome-profile`），Chrome 解析 `--user-data-dir` 时使用 **Chrome.exe 自己的 CWD**（`chrome/chrome-win64/`），结果 `DevToolsActivePort` 写到了 `chrome/chrome-win64/data/replay-tmp/...`，而 Go 代码在 `data/replay-tmp/...` 等，30s 超时 | `config.go` 新增 `ResolvePaths(baseDir)` 方法；`cmd/go-chrome/main.go` 启动时用 `app.ExecutableDir()` 作为 base 把所有相对路径转成绝对路径 |
+| 19 | **运行面板缺少一键关闭本程序启动的 Chrome 按钮**（user-reported） | 用户在外部已经打开了 Chrome 时，关闭按钮误伤用户自己的 Chrome | 新增 `closeManagedChrome()`：只 kill `Manager` 跟踪的 pid（用 `taskkill /F /T /PID` 杀进程树），不影响用户进程；按钮在 `ChromeRunning/ChromeStarting` 时启用，否则禁用；点击先弹确认框 |
 
 ## 待优化 / 环境相关
 
