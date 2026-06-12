@@ -41,7 +41,7 @@ func newEnvPanel(app *App) *envPanel {
 	p.list = widget.NewList(
 		func() int { return len(p.filteredEnvs()) },
 		func() fyne.CanvasObject {
-			return widget.NewLabel("环境")
+			return newContextMenuLabel("环境", nil)
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			envs := p.filteredEnvs()
@@ -49,11 +49,14 @@ func newEnvPanel(app *App) *envPanel {
 				return
 			}
 			e := envs[id]
-			label := item.(*widget.Label)
+			label := item.(*contextMenuLabel)
 			if e.IsActive {
 				label.SetText(e.Name + " [当前]")
 			} else {
 				label.SetText(e.Name)
+			}
+			label.onSecondaryTap = func(e *fyne.PointEvent) {
+				p.showEnvContextMenu(int(id), e)
 			}
 		},
 	)
@@ -67,11 +70,12 @@ func newEnvPanel(app *App) *envPanel {
 
 	p.varTable = widget.NewTableWithHeaders(
 		func() (int, int) { return len(p.currentVars), 5 },
-		func() fyne.CanvasObject { return newTruncatingLabel("cell") },
+		func() fyne.CanvasObject { return newContextMenuLabel("cell", nil) },
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
-			label := cell.(*widget.Label)
+			label := cell.(*contextMenuLabel)
 			if id.Row < 0 || id.Row >= len(p.currentVars) {
 				label.SetText("")
+				label.onSecondaryTap = nil
 				return
 			}
 			v := p.currentVars[id.Row]
@@ -94,6 +98,9 @@ func newEnvPanel(app *App) *envPanel {
 				label.SetText(v.Description)
 			case 4:
 				label.SetText("")
+			}
+			label.onSecondaryTap = func(e *fyne.PointEvent) {
+				p.showVarContextMenu(id.Row, e)
 			}
 		},
 	)
@@ -276,6 +283,117 @@ func (p *envPanel) syncListSelection() {
 		}
 	}
 	p.list.UnselectAll()
+}
+
+func (p *envPanel) showEnvContextMenu(idx int, e *fyne.PointEvent) {
+	envs := p.filteredEnvs()
+	if idx < 0 || idx >= len(envs) {
+		return
+	}
+	p.list.Select(idx)
+	env := envs[idx]
+	p.currentEnvID = env.ID
+
+	setActiveItem := fyne.NewMenuItem("设为当前环境", func() {
+		p.showSetActiveEnvDialog()
+	})
+	renameItem := fyne.NewMenuItem("重命名 / 说明", func() {
+		p.showRenameEnvDialog()
+	})
+	copyItem := fyne.NewMenuItem("复制环境", func() {
+		p.showCopyEnvDialog()
+	})
+	exportItem := fyne.NewMenuItem("导出全部环境配置", func() {
+		p.showExportEnvDialog()
+	})
+	copyNameItem := fyne.NewMenuItem("复制环境名称", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(env.Name))
+		p.app.runPanel.log("环境名称已复制到剪贴板")
+	})
+	copyIDItem := fyne.NewMenuItem("复制环境 ID", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(env.ID))
+		p.app.runPanel.log("环境 ID 已复制到剪贴板")
+	})
+	deleteItem := fyne.NewMenuItem("删除环境", func() {
+		p.showDeleteEnvDialog()
+	})
+	deleteItem.IsQuit = true
+
+	menu := fyne.NewMenu("环境操作",
+		setActiveItem,
+		renameItem,
+		fyne.NewMenuItemSeparator(),
+		copyItem,
+		exportItem,
+		copyNameItem,
+		copyIDItem,
+		fyne.NewMenuItemSeparator(),
+		deleteItem,
+	)
+	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
+}
+
+func (p *envPanel) showVarContextMenu(row int, e *fyne.PointEvent) {
+	if row < 0 || row >= len(p.currentVars) {
+		return
+	}
+	p.varTable.Select(widget.TableCellID{Row: row, Col: 0})
+	p.currentVarID = p.currentVars[row].ID
+	v := p.currentVars[row]
+
+	editItem := fyne.NewMenuItem("编辑变量", func() {
+		p.showEditVarDialog()
+	})
+	copyKeyItem := fyne.NewMenuItem("复制变量名", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(v.Key))
+		p.app.runPanel.log("变量名已复制到剪贴板")
+	})
+	copyValueItem := fyne.NewMenuItem("复制变量值", func() {
+		if v.IsSecret {
+			showWrappedConfirm("复制敏感变量值", "该变量为敏感变量，复制将把明文写入剪贴板，是否继续？", "继续", "取消", fyne.NewSize(480, 180), func(ok bool) {
+				if ok {
+					p.app.fyneApp.Clipboard().SetContent(clipCopy(v.Value))
+					p.app.runPanel.log("变量值已复制到剪贴板")
+				}
+			}, p.app.mainWin)
+			return
+		}
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(v.Value))
+		p.app.runPanel.log("变量值已复制到剪贴板")
+	})
+	copyRefItem := fyne.NewMenuItem("复制 env 引用", func() {
+		ref := fmt.Sprintf("${env:%s}", v.Key)
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(ref))
+		p.app.runPanel.log("环境变量引用已复制到剪贴板：" + ref)
+	})
+	toggleSecretItem := fyne.NewMenuItem("标记为敏感", nil)
+	if v.IsSecret {
+		toggleSecretItem.Label = "取消敏感标记"
+	}
+	toggleSecretItem.Action = func() {
+		v.IsSecret = !v.IsSecret
+		if err := p.app.envRepo.SaveVar(v); err != nil {
+			dialog.ShowError(err, p.app.mainWin)
+			return
+		}
+		p.refreshVars()
+	}
+	deleteItem := fyne.NewMenuItem("删除变量", func() {
+		p.showDeleteVarDialog()
+	})
+	deleteItem.IsQuit = true
+
+	menu := fyne.NewMenu("变量操作",
+		editItem,
+		copyKeyItem,
+		copyValueItem,
+		copyRefItem,
+		fyne.NewMenuItemSeparator(),
+		toggleSecretItem,
+		fyne.NewMenuItemSeparator(),
+		deleteItem,
+	)
+	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
 }
 
 func (p *envPanel) envByID(id string) (*db.Environment, bool) {

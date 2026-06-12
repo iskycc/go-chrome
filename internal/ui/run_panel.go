@@ -95,10 +95,8 @@ func newRunPanel(app *App) *runPanel {
 func (p *runPanel) log(msg string) {
 	fyne.Do(func() {
 		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg)
-		text := canvas.NewText(line, logColor(msg))
-		text.TextSize = 13
-		text.TextStyle = fyne.TextStyle{Monospace: true}
-		p.logBox.Add(text)
+		item := newLogLine(line, logColor(msg), p)
+		p.logBox.Add(item)
 		if len(p.logBox.Objects) > 300 {
 			p.logBox.Objects = p.logBox.Objects[len(p.logBox.Objects)-300:]
 		}
@@ -206,12 +204,19 @@ func (p *runPanel) copyLog() {
 	fyne.Do(func() {
 		var lines []string
 		for _, obj := range p.logBox.Objects {
-			if t, ok := obj.(*canvas.Text); ok {
-				lines = append(lines, t.Text)
+			if item, ok := obj.(*logLine); ok {
+				lines = append(lines, item.text)
 			}
 		}
 		p.app.fyneApp.Clipboard().SetContent(strings.Join(lines, "\n"))
 		p.log("日志已复制到剪贴板")
+	})
+}
+
+func (p *runPanel) copyLogLine(text string) {
+	fyne.Do(func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(text))
+		p.log("当前日志行已复制到剪贴板")
 	})
 }
 
@@ -230,4 +235,75 @@ func (p *runPanel) openArtifactDir() {
 			p.log("打开产物目录失败：" + err.Error())
 		}
 	})
+}
+
+func (p *runPanel) copyArtifactDir() {
+	fyne.Do(func() {
+		if p.artifactDir == "" {
+			p.log("暂无产物目录")
+			return
+		}
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(p.artifactDir))
+		p.log("产物目录路径已复制到剪贴板")
+	})
+}
+
+func (p *runPanel) showLogContextMenu(lineText string, e *fyne.PointEvent) {
+	copyLineItem := fyne.NewMenuItem("复制当前日志行", func() {
+		p.copyLogLine(lineText)
+	})
+	copyAllItem := fyne.NewMenuItem("复制全部日志", func() {
+		p.copyLog()
+	})
+	clearItem := fyne.NewMenuItem("清空日志", func() {
+		p.clearLog()
+	})
+	openDirItem := fyne.NewMenuItem("打开产物目录", func() {
+		p.openArtifactDir()
+	})
+	openDirItem.Disabled = p.artifactDir == ""
+	copyDirItem := fyne.NewMenuItem("复制产物目录路径", func() {
+		p.copyArtifactDir()
+	})
+	copyDirItem.Disabled = p.artifactDir == ""
+
+	menu := fyne.NewMenu("日志操作",
+		copyLineItem,
+		copyAllItem,
+		fyne.NewMenuItemSeparator(),
+		clearItem,
+		fyne.NewMenuItemSeparator(),
+		openDirItem,
+		copyDirItem,
+	)
+	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
+}
+
+// logLine is a single log entry that supports right-click context menu.
+type logLine struct {
+	widget.BaseWidget
+	text    string
+	p       *runPanel
+	textObj *canvas.Text
+}
+
+func newLogLine(text string, color color.Color, p *runPanel) *logLine {
+	item := &logLine{text: text, p: p}
+	item.ExtendBaseWidget(item)
+	item.textObj = canvas.NewText(text, color)
+	item.textObj.TextSize = 13
+	item.textObj.TextStyle = fyne.TextStyle{Monospace: true}
+	return item
+}
+
+func (l *logLine) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(container.NewWithoutLayout(l.textObj))
+}
+
+func (l *logLine) MinSize() fyne.Size {
+	return l.textObj.MinSize().Add(fyne.NewSize(0, 2))
+}
+
+func (l *logLine) TappedSecondary(e *fyne.PointEvent) {
+	l.p.showLogContextMenu(l.text, e)
 }

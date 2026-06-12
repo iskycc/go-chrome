@@ -64,12 +64,13 @@ func (p *stepTablePanel) initTable() {
 			// Truncating label so long step names, XPaths, and
 			// input text get visually clipped with "…" instead
 			// of drawing past the column width.
-			return newTruncatingLabel("cell")
+			return newContextMenuLabel("cell", nil)
 		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
-			label := cell.(*widget.Label)
+			label := cell.(*contextMenuLabel)
 			if id.Row < 0 || id.Row >= len(p.stepsData) {
 				label.SetText("")
+				label.onSecondaryTap = nil
 				return
 			}
 			s := p.stepsData[id.Row]
@@ -109,6 +110,9 @@ func (p *stepTablePanel) initTable() {
 				label.TextStyle = fyne.TextStyle{Italic: true}
 			} else {
 				label.TextStyle = fyne.TextStyle{}
+			}
+			label.onSecondaryTap = func(e *fyne.PointEvent) {
+				p.showStepContextMenu(id.Row, e)
 			}
 		},
 	)
@@ -259,6 +263,96 @@ func (p *stepTablePanel) clearStatuses() {
 
 func (p *stepTablePanel) selectedIndex() int {
 	return p.selected
+}
+
+func (p *stepTablePanel) showStepContextMenu(row int, e *fyne.PointEvent) {
+	if row < 0 || row >= len(p.stepsData) || p.currentFlow == nil {
+		return
+	}
+	p.table.Select(widget.TableCellID{Row: row, Col: 0})
+	s := &p.stepsData[row]
+
+	editItem := fyne.NewMenuItem("编辑步骤属性", func() {
+		p.app.onStepSelected(s, row)
+	})
+	runFromItem := fyne.NewMenuItem("从此步骤运行", func() {
+		p.table.Select(widget.TableCellID{Row: row, Col: 0})
+		p.app.runCurrentFlow()
+	})
+	copyItem := fyne.NewMenuItem("复制步骤", func() {
+		p.copyStep()
+	})
+	deleteItem := fyne.NewMenuItem("删除步骤", func() {
+		p.confirmDeleteStep()
+	})
+	upItem := fyne.NewMenuItem("上移", func() {
+		p.moveStep(-1)
+	})
+	upItem.Disabled = row <= 0
+	downItem := fyne.NewMenuItem("下移", func() {
+		p.moveStep(1)
+	})
+	downItem.Disabled = row >= len(p.stepsData)-1
+	toggleItem := fyne.NewMenuItem("启用", nil)
+	if s.Enabled {
+		toggleItem.Label = "禁用"
+	}
+	toggleItem.Action = func() {
+		s.Enabled = !s.Enabled
+		p.table.Refresh()
+		p.fireChanged()
+	}
+	copyNameItem := fyne.NewMenuItem("复制步骤名称", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(s.Name))
+		p.app.runPanel.log("步骤名称已复制到剪贴板")
+	})
+	copyTargetItem := fyne.NewMenuItem("复制 XPath/目标", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(s.Target.Value))
+		p.app.runPanel.log("XPath/目标已复制到剪贴板")
+	})
+	copyInputItem := fyne.NewMenuItem("复制输入内容", func() {
+		if s.Input.MaskInLogs {
+			showWrappedConfirm("复制敏感输入", "该输入被标记为敏感，复制将把明文写入剪贴板，是否继续？", "继续", "取消", fyne.NewSize(480, 180), func(ok bool) {
+				if ok {
+					p.app.fyneApp.Clipboard().SetContent(clipCopy(s.Input.Text))
+					p.app.runPanel.log("输入内容已复制到剪贴板")
+				}
+			}, p.app.mainWin)
+			return
+		}
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(s.Input.Text))
+		p.app.runPanel.log("输入内容已复制到剪贴板")
+	})
+
+	menu := fyne.NewMenu("步骤操作",
+		editItem,
+		runFromItem,
+		fyne.NewMenuItemSeparator(),
+		copyItem,
+		copyNameItem,
+		copyTargetItem,
+		copyInputItem,
+		fyne.NewMenuItemSeparator(),
+		toggleItem,
+		upItem,
+		downItem,
+		fyne.NewMenuItemSeparator(),
+		deleteItem,
+	)
+	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
+}
+
+func (p *stepTablePanel) confirmDeleteStep() {
+	if p.selected < 0 || p.selected >= len(p.stepsData) {
+		return
+	}
+	s := p.stepsData[p.selected]
+	msg := fmt.Sprintf("确定删除步骤 [%s] 吗？", truncateForDialog(s.Name, 80))
+	showWrappedConfirm("确认删除", msg, "删除", "取消", fyne.NewSize(520, 180), func(ok bool) {
+		if ok {
+			p.deleteStep()
+		}
+	}, p.app.mainWin)
 }
 
 func (p *stepTablePanel) fireChanged() {

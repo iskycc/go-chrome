@@ -32,7 +32,7 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 			// Truncating label so long flow names + tags get
 			// visually clipped with "…" instead of overflowing
 			// the left panel's width.
-			return newTruncatingLabel("Flow Name")
+			return newContextMenuLabel("Flow Name", nil)
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			if id < 0 || id >= len(p.flows) {
@@ -44,7 +44,11 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 			if len(f.Tags) > 0 {
 				tags = " [" + strings.Join(f.Tags, ", ") + "]"
 			}
-			item.(*widget.Label).SetText(name + tags)
+			label := item.(*contextMenuLabel)
+			label.SetText(name + tags)
+			label.onSecondaryTap = func(e *fyne.PointEvent) {
+				p.showFlowContextMenu(int(id), e)
+			}
 		},
 	)
 	p.list.OnSelected = func(id widget.ListItemID) {
@@ -192,4 +196,52 @@ func (p *flowLibraryPanel) selectFlow(id string) bool {
 		}
 	}
 	return false
+}
+
+func (p *flowLibraryPanel) showFlowContextMenu(idx int, e *fyne.PointEvent) {
+	if idx < 0 || idx >= len(p.flows) {
+		return
+	}
+	p.list.Select(idx)
+	f := p.flows[idx]
+
+	openItem := fyne.NewMenuItem("打开流程", func() {
+		p.list.Select(idx)
+	})
+	runItem := fyne.NewMenuItem("运行此流程", func() {
+		p.list.Select(idx)
+		p.app.runCurrentFlow()
+	})
+	cloneItem := fyne.NewMenuItem("复制流程", func() {
+		p.app.onFlowClone(f)
+	})
+	exportItem := fyne.NewMenuItem("导出流程", func() {
+		p.list.Select(idx)
+		p.app.exportFlow()
+	})
+	copyNameItem := fyne.NewMenuItem("复制流程名称", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(f.Name))
+		p.app.runPanel.log("流程名称已复制到剪贴板")
+	})
+	copyIDItem := fyne.NewMenuItem("复制流程 ID", func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(f.ID))
+		p.app.runPanel.log("流程 ID 已复制到剪贴板")
+	})
+	deleteItem := fyne.NewMenuItem("删除流程", func() {
+		p.app.onFlowDelete(f)
+	})
+	deleteItem.IsQuit = true
+
+	menu := fyne.NewMenu("流程操作",
+		openItem,
+		runItem,
+		fyne.NewMenuItemSeparator(),
+		cloneItem,
+		exportItem,
+		copyNameItem,
+		copyIDItem,
+		fyne.NewMenuItemSeparator(),
+		deleteItem,
+	)
+	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
 }
