@@ -44,19 +44,43 @@ type statusItem struct {
 	dotClr color.Color
 }
 
-func newStatusItem(field, defaultValue string, defaultColor color.Color) *statusItem {
+// newStatusItem builds a row of [dot, field, value]. The value label is
+// sized to valueWidth pixels wide and configured to ellipsize text that
+// does not fit. Using TextTruncateEllipsis directly in an HBox is unsafe:
+// Fyne computes the label's MinSize as a single character when
+// Truncation is set (see widget/richtext.go textRenderer.MinSize), so
+// the label can be squished to ~0 width by neighbouring widgets and
+// render as "..." for any content. Wrapping it in a fixed-size
+// container gives the label a stable width budget.
+//
+// We rely on textutil.Truncate (rune-aware) as a coarse safety net for
+// pathological inputs (multi-kilobyte values), then let Fyne's
+// per-pixel ellipsis handle the visual fit.
+func newStatusItem(field, defaultValue string, defaultColor color.Color, valueWidth float32) *statusItem {
+	val := widget.NewLabel(defaultValue)
+	val.Truncation = fyne.TextTruncateEllipsis
+	val.Wrapping = fyne.TextWrapOff
+
+	// Fixed-width container that respects valueWidth as both a min and
+	// max width. GridWrap is the simplest way to force a child to a
+	// specific size inside an HBox.
+	valueBox := container.NewGridWrap(fyne.NewSize(valueWidth, val.MinSize().Height), val)
+
 	si := &statusItem{
 		field:  widget.NewLabelWithStyle(field, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		value:  newTruncatingLabel(defaultValue),
+		value:  val,
 		dot:    canvas.NewCircle(defaultColor),
 		dotClr: defaultColor,
 	}
-	si.row = container.NewHBox(si.dot, si.field, si.value)
+	si.row = container.NewHBox(si.dot, si.field, valueBox)
 	return si
 }
 
 func (si *statusItem) setValue(text string) {
-	si.value.SetText(text)
+	// Rune-aware truncate as a hard ceiling in case valueWidth would
+	// otherwise show hundreds of glyphs before ellipsizing. This is a
+	// safety net, not the primary mechanism.
+	si.value.SetText(truncate(text, 200))
 }
 
 func (si *statusItem) setColor(c color.Color) {
@@ -79,10 +103,10 @@ type statusBar struct {
 
 func newStatusBar(app *App) *statusBar {
 	sb := &statusBar{app: app}
-	sb.flow = newStatusItem("当前流程：", "未选择", statusColorGray())
-	sb.save = newStatusItem("保存状态：", "未修改", statusColorGreen())
-	sb.chrome = newStatusItem("Chrome：", "未安装", statusColorYellow())
-	sb.run = newStatusItem("运行状态：", "空闲", statusColorGray())
+	sb.flow = newStatusItem("当前流程：", "未选择", statusColorGray(), 180)
+	sb.save = newStatusItem("保存状态：", "未修改", statusColorGreen(), 110)
+	sb.chrome = newStatusItem("Chrome：", "未安装", statusColorYellow(), 110)
+	sb.run = newStatusItem("运行状态：", "空闲", statusColorGray(), 160)
 
 	title := widget.NewLabelWithStyle("Go Chrome", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	titleSpacer := canvas.NewRectangle(color.Transparent)
