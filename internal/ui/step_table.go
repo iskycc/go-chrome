@@ -191,7 +191,7 @@ func (p *stepTablePanel) showAddStepDialog() {
 		},
 		p.app.mainWin,
 	)
-	d.Resize(fyne.NewSize(420, 180))
+	d.Resize(fyne.NewSize(480, 200))
 	d.Show()
 }
 

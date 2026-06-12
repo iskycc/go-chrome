@@ -333,7 +333,7 @@ func (a *App) exportFlow() {
 	if a.currentFlow == nil {
 		return
 	}
-	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+	d := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil || writer == nil {
 			return
 		}
@@ -342,6 +342,9 @@ func (a *App) exportFlow() {
 			dialog.ShowError(err, a.mainWin)
 		}
 	}, a.mainWin)
+	d.SetFileName(safeFileName(a.currentFlow.Name))
+	resizeFileDialog(d)
+	d.Show()
 }
 
 func (a *App) startBrowser() {
@@ -778,7 +781,7 @@ func (a *App) onFlowSelected(f *flow.Flow) {
 func (a *App) promptSaveBefore(next func()) {
 	name := ""
 	if a.currentFlow != nil {
-		name = a.currentFlow.Name
+		name = truncateForDialog(a.currentFlow.Name, 80)
 	}
 
 	body := widget.NewLabel(fmt.Sprintf(
@@ -792,10 +795,11 @@ func (a *App) promptSaveBefore(next func()) {
 	discardBtn := widget.NewButtonWithIcon("放弃修改", theme.DeleteIcon(), nil)
 	cancelBtn := widget.NewButton("取消", nil)
 
-	content := container.NewVBox(body, container.NewHBox(saveBtn, discardBtn, cancelBtn))
+	btnRow := container.NewGridWithColumns(3, saveBtn, discardBtn, cancelBtn)
+	content := container.NewVBox(body, btnRow)
 
 	d := dialog.NewCustomWithoutButtons("未保存的修改", content, a.mainWin)
-	d.Resize(fyne.NewSize(480, 180))
+	d.Resize(fyne.NewSize(560, 220))
 	d.SetButtons([]fyne.CanvasObject{saveBtn, discardBtn, cancelBtn})
 
 	saveBtn.OnTapped = func() {
@@ -829,7 +833,8 @@ func (a *App) promptSaveBefore(next func()) {
 }
 
 func (a *App) onFlowDelete(f *flow.Flow) {
-	dialog.ShowConfirm("确认删除", fmt.Sprintf("确定删除流程 [%s] 吗？", f.Name), func(ok bool) {
+	msg := fmt.Sprintf("确定删除流程 [%s] 吗？", truncateForDialog(f.Name, 80))
+	showWrappedConfirm("确认删除", msg, "删除", "取消", fyne.NewSize(520, 180), func(ok bool) {
 		if !ok {
 			return
 		}
@@ -877,15 +882,39 @@ func (a *App) onStepSelected(s *flow.Step, idx int) {
 		return
 	}
 	if a.stepProperty.stepIndex != idx && a.stepProperty.hasUnappliedChanges() {
-		dialog.ShowConfirm("未应用的步骤修改",
-			"当前步骤属性有未应用修改，是否先应用到当前步骤？",
-			func(apply bool) {
-				if apply {
-					a.stepProperty.apply()
-				}
-				a.stepProperty.loadStep(s, idx, len(a.stepTable.stepsData))
-			}, a.mainWin)
+		a.promptStepChanges(s, idx)
 		return
 	}
 	a.stepProperty.loadStep(s, idx, len(a.stepTable.stepsData))
+}
+
+// promptStepChanges shows a 3-way dialog for unapplied step property changes.
+func (a *App) promptStepChanges(s *flow.Step, idx int) {
+	body := widget.NewLabel("当前步骤属性有未应用修改，要如何处理？")
+	body.Alignment = fyne.TextAlignLeading
+	body.Wrapping = fyne.TextWrapWord
+
+	applyBtn := widget.NewButtonWithIcon("应用并切换", theme.ConfirmIcon(), nil)
+	discardBtn := widget.NewButtonWithIcon("放弃修改", theme.DeleteIcon(), nil)
+	cancelBtn := widget.NewButton("取消", nil)
+
+	content := container.NewVBox(body, container.NewHBox(applyBtn, discardBtn, cancelBtn))
+	d := dialog.NewCustomWithoutButtons("未应用的步骤修改", content, a.mainWin)
+	d.Resize(fyne.NewSize(520, 200))
+	d.SetButtons([]fyne.CanvasObject{applyBtn, discardBtn, cancelBtn})
+
+	applyBtn.OnTapped = func() {
+		d.Hide()
+		a.stepProperty.apply()
+		a.stepProperty.loadStep(s, idx, len(a.stepTable.stepsData))
+	}
+	discardBtn.OnTapped = func() {
+		d.Hide()
+		a.stepProperty.loadStep(s, idx, len(a.stepTable.stepsData))
+	}
+	cancelBtn.OnTapped = func() {
+		d.Hide()
+	}
+
+	d.Show()
 }

@@ -300,11 +300,10 @@ func (p *envPanel) showNewEnvDialog() {
 	if p.app.envRepo == nil {
 		return
 	}
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("环境名称")
-	dialog.ShowForm("新建环境", "创建", "取消", []*widget.FormItem{
+	nameEntry := sizedEntry("环境名称")
+	showSizedFormDialog("新建环境", "创建", "取消", []*widget.FormItem{
 		widget.NewFormItem("名称", nameEntry),
-	}, func(ok bool) {
+	}, fyne.NewSize(480, 180), func(ok bool) {
 		name := strings.TrimSpace(nameEntry.Text)
 		if !ok || name == "" {
 			return
@@ -328,14 +327,14 @@ func (p *envPanel) showRenameEnvDialog() {
 		dialog.ShowInformation("提示", "请先选择一个环境", p.app.mainWin)
 		return
 	}
-	nameEntry := widget.NewEntry()
+	nameEntry := sizedEntry("")
 	nameEntry.SetText(env.Name)
-	descEntry := widget.NewEntry()
+	descEntry := sizedMultiLineEntry("环境说明", 3)
 	descEntry.SetText(env.Description)
-	dialog.ShowForm("编辑环境", "保存", "取消", []*widget.FormItem{
+	showSizedFormDialog("编辑环境", "保存", "取消", []*widget.FormItem{
 		widget.NewFormItem("名称", nameEntry),
 		widget.NewFormItem("说明", descEntry),
-	}, func(ok bool) {
+	}, fyne.NewSize(560, 260), func(ok bool) {
 		if !ok || strings.TrimSpace(nameEntry.Text) == "" {
 			return
 		}
@@ -383,7 +382,8 @@ func (p *envPanel) showDeleteEnvDialog() {
 		dialog.ShowInformation("提示", "请先选择一个环境", p.app.mainWin)
 		return
 	}
-	dialog.ShowConfirm("确认删除", fmt.Sprintf("确定删除环境 [%s] 吗？", env.Name), func(ok bool) {
+	msg := fmt.Sprintf("确定删除环境 [%s] 吗？", truncateForDialog(env.Name, 80))
+	showWrappedConfirm("确认删除", msg, "删除", "取消", fyne.NewSize(520, 180), func(ok bool) {
 		if !ok {
 			return
 		}
@@ -447,6 +447,7 @@ func (p *envPanel) showImportEnvDialog() {
 		dialog.ShowInformation("导入成功", "环境配置已导入。", p.app.mainWin)
 	}, p.app.mainWin)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".json"}))
+	resizeFileDialog(fd)
 	fd.Show()
 }
 
@@ -465,6 +466,7 @@ func (p *envPanel) showExportEnvDialog() {
 			}
 		}, p.app.mainWin)
 		fd.SetFileName("go-chrome-env-config.json")
+		resizeFileDialog(fd)
 		fd.Show()
 	})
 }
@@ -490,7 +492,8 @@ func (p *envPanel) confirmExportIfNeeded(cont func()) {
 		cont()
 		return
 	}
-	dialog.ShowConfirm("确认导出", "导出文件包含敏感变量，将以明文形式保存，是否继续？", func(ok bool) {
+	msg := "导出文件将包含敏感变量的明文值。\n请确认该文件只保存在可信位置。"
+	showWrappedConfirm("确认导出", msg, "继续导出", "取消", fyne.NewSize(520, 200), func(ok bool) {
 		if ok {
 			cont()
 		}
@@ -510,17 +513,15 @@ func (p *envPanel) showNewVarDialog() {
 		dialog.ShowInformation("提示", "请先选择一个环境", p.app.mainWin)
 		return
 	}
-	keyEntry := widget.NewEntry()
-	keyEntry.SetPlaceHolder("变量名")
+	keyEntry := sizedEntry("变量名")
 	forceUppercaseEntry(keyEntry)
-	valEntry := widget.NewEntry()
-	valEntry.SetPlaceHolder("变量值")
+	valEntry := sizedMultiLineEntry("变量值（支持 URL、Token、JSON 等长文本）", 3)
 	secretCheck := widget.NewCheck("敏感变量", nil)
-	dialog.ShowForm("新增变量", "添加", "取消", []*widget.FormItem{
+	showSizedFormDialog("新增变量", "添加", "取消", []*widget.FormItem{
 		widget.NewFormItem("变量名", keyEntry),
 		widget.NewFormItem("变量值", valEntry),
 		widget.NewFormItem("", secretCheck),
-	}, func(ok bool) {
+	}, fyne.NewSize(640, 300), func(ok bool) {
 		key := strings.TrimSpace(keyEntry.Text)
 		if !ok || key == "" {
 			return
@@ -546,21 +547,21 @@ func (p *envPanel) showEditVarDialog() {
 		dialog.ShowInformation("提示", "请先选择一个变量", p.app.mainWin)
 		return
 	}
-	keyEntry := widget.NewEntry()
+	keyEntry := sizedEntry("")
 	keyEntry.SetText(v.Key)
 	forceUppercaseEntry(keyEntry)
-	valEntry := widget.NewEntry()
+	valEntry := sizedMultiLineEntry("变量值", 3)
 	valEntry.SetText(v.Value)
-	descEntry := widget.NewEntry()
+	descEntry := sizedMultiLineEntry("变量说明", 2)
 	descEntry.SetText(v.Description)
 	secretCheck := widget.NewCheck("敏感变量", nil)
 	secretCheck.SetChecked(v.IsSecret)
-	dialog.ShowForm("编辑变量", "保存", "取消", []*widget.FormItem{
+	showSizedFormDialog("编辑变量", "保存", "取消", []*widget.FormItem{
 		widget.NewFormItem("变量名", keyEntry),
 		widget.NewFormItem("变量值", valEntry),
 		widget.NewFormItem("说明", descEntry),
 		widget.NewFormItem("", secretCheck),
-	}, func(ok bool) {
+	}, fyne.NewSize(680, 360), func(ok bool) {
 		key := strings.TrimSpace(keyEntry.Text)
 		if !ok || key == "" {
 			return
@@ -583,7 +584,8 @@ func (p *envPanel) showDeleteVarDialog() {
 		dialog.ShowInformation("提示", "请先选择一个变量", p.app.mainWin)
 		return
 	}
-	dialog.ShowConfirm("确认删除", fmt.Sprintf("确定删除变量 [%s] 吗？", v.Key), func(ok bool) {
+	msg := fmt.Sprintf("确定删除变量 [%s] 吗？", truncateForDialog(v.Key, 80))
+	showWrappedConfirm("确认删除", msg, "删除", "取消", fyne.NewSize(520, 180), func(ok bool) {
 		if !ok {
 			return
 		}

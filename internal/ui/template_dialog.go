@@ -36,7 +36,7 @@ func (a *App) showTemplatePickerDialog() {
 	previewHeader := widget.NewLabelWithStyle("步骤预览", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	previewList := widget.NewList(
 		func() int { return len(previewLines) },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() fyne.CanvasObject { return newTruncatingLabel("") },
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			if id < 0 || id >= len(previewLines) {
 				return
@@ -55,7 +55,7 @@ func (a *App) showTemplatePickerDialog() {
 	// Left side: template list.
 	list := widget.NewList(
 		func() int { return len(templates) },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func() fyne.CanvasObject { return newTruncatingLabel("") },
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			if id < 0 || id >= len(templates) {
 				return
