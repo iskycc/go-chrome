@@ -23,11 +23,11 @@ type runPanel struct {
 	widget fyne.CanvasObject
 
 	progressBar  *widget.ProgressBar
-	progressText *widget.Label
+	progressText *progressLabel
 	logBox       *fyne.Container
 	logScroll    *container.Scroll
 	summary      *widget.Label
-	currentStep  *widget.Label
+	currentStep  *currentStepLabel
 	artifactBox  *fyne.Container
 	artifactDir  string
 }
@@ -38,13 +38,13 @@ func newRunPanel(app *App) *runPanel {
 	p.progressBar = widget.NewProgressBar()
 	p.progressBar.Min = 0
 	p.progressBar.Max = 1
-	p.progressText = newTruncatingLabel("就绪")
+	p.progressText = newProgressLabel(180, 520)
 
 	p.logBox = container.NewVBox()
 	p.logScroll = container.NewScroll(p.logBox)
 
 	p.summary = widget.NewLabel("成功：0  失败：0  跳过：0  总耗时：0.0s")
-	p.currentStep = newTruncatingLabel("")
+	p.currentStep = newCurrentStepLabel()
 	p.artifactBox = container.NewHBox()
 
 	clearLogBtn := widget.NewButtonWithIcon("清空日志", theme.DeleteIcon(), func() {
@@ -69,15 +69,14 @@ func newRunPanel(app *App) *runPanel {
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
 	})
 
-	progressArea := container.NewVBox(p.progressBar, p.progressText)
+	progressArea := container.NewVBox(p.progressText.box, p.progressBar)
 	actionBtns := container.NewHBox(clearLogBtn, copyLogBtn, openArtifactBtn, moreBtn)
-	topBar := container.NewBorder(nil, nil, progressArea, actionBtns)
+	topBar := container.NewBorder(nil, nil, nil, actionBtns, progressArea)
 
 	rightPanel := container.NewVBox(
 		widget.NewLabelWithStyle("运行摘要", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		p.summary,
-		widget.NewLabelWithStyle("当前步骤", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		p.currentStep,
+		p.currentStep.box,
 		widget.NewLabelWithStyle("产物", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		p.artifactBox,
 	)
@@ -127,7 +126,7 @@ func (p *runPanel) setProgress(current, total int, stepName string) {
 			p.progressBar.Max = float64(total)
 			p.progressBar.SetValue(float64(current))
 		}
-		p.progressText.SetText(fmt.Sprintf("第 %d 步 / 共 %d 步 · %s", current, total, stepName))
+		p.progressText.set(current, total, stepName)
 	})
 }
 
@@ -140,7 +139,7 @@ func (p *runPanel) setSummary(res *runner.RunResult) {
 
 func (p *runPanel) setCurrentStep(name string) {
 	fyne.Do(func() {
-		p.currentStep.SetText("当前步骤：" + name)
+		p.currentStep.SetText(name)
 	})
 }
 
@@ -149,11 +148,17 @@ func (p *runPanel) setArtifacts(screenshot, htmlSnap string) {
 		p.artifactBox.Objects = nil
 		p.artifactDir = ""
 		if screenshot != "" {
-			p.artifactBox.Objects = append(p.artifactBox.Objects, newTruncatingLabel("截图："+screenshot))
+			label := newContextMenuLabel("截图："+screenshot, func(e *fyne.PointEvent) {
+				p.showArtifactContextMenu(screenshot, "截图路径", e)
+			})
+			p.artifactBox.Objects = append(p.artifactBox.Objects, label)
 			p.artifactDir = filepath.Dir(screenshot)
 		}
 		if htmlSnap != "" {
-			p.artifactBox.Objects = append(p.artifactBox.Objects, newTruncatingLabel("HTML："+htmlSnap))
+			label := newContextMenuLabel("HTML："+htmlSnap, func(e *fyne.PointEvent) {
+				p.showArtifactContextMenu(htmlSnap, "HTML 路径", e)
+			})
+			p.artifactBox.Objects = append(p.artifactBox.Objects, label)
 			if p.artifactDir == "" {
 				p.artifactDir = filepath.Dir(htmlSnap)
 			}
@@ -173,7 +178,7 @@ func (p *runPanel) clearArtifacts() {
 func (p *runPanel) reset() {
 	fyne.Do(func() {
 		p.progressBar.SetValue(0)
-		p.progressText.SetText("就绪")
+		p.progressText.set(0, 0, "")
 		p.currentStep.SetText("")
 		p.clearArtifacts()
 	})
@@ -246,6 +251,19 @@ func (p *runPanel) copyArtifactDir() {
 		p.app.fyneApp.Clipboard().SetContent(clipCopy(p.artifactDir))
 		p.log("产物目录路径已复制到剪贴板")
 	})
+}
+
+func (p *runPanel) showArtifactContextMenu(path, kind string, e *fyne.PointEvent) {
+	copyItem := fyne.NewMenuItem("复制"+kind, func() {
+		p.app.fyneApp.Clipboard().SetContent(clipCopy(path))
+		p.log(kind + "已复制到剪贴板")
+	})
+	openDirItem := fyne.NewMenuItem("打开产物目录", func() {
+		p.openArtifactDir()
+	})
+	openDirItem.Disabled = p.artifactDir == ""
+	menu := fyne.NewMenu("产物操作", copyItem, openDirItem)
+	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
 }
 
 func (p *runPanel) showLogContextMenu(lineText string, e *fyne.PointEvent) {

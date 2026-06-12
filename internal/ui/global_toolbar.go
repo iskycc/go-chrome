@@ -31,7 +31,7 @@ type globalToolbar struct {
 	stepBtn        *widget.Button
 	stopBtn        *widget.Button
 	progress       *widget.ProgressBar
-	progressText   *widget.Label
+	progressText   *progressLabel
 
 	flowOptions []flowSelectOption
 	flowByID    map[string]*flow.Flow
@@ -110,9 +110,9 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	t.progress = widget.NewProgressBar()
 	t.progress.Min = 0
 	t.progress.Max = 1
-	t.progressText = newTruncatingLabel("就绪")
+	t.progressText = newProgressLabel(160, 360)
 
-	progressBox := container.NewBorder(nil, nil, t.progressText, nil, t.progress)
+	progressBox := container.NewVBox(t.progressText.box, t.progress)
 
 	flowBox := container.NewHBox(
 		widget.NewLabelWithStyle("流程", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -226,11 +226,8 @@ func (t *globalToolbar) setProgress(current, total int, stepName string) {
 		if total > 0 {
 			t.progress.Max = float64(total)
 			t.progress.SetValue(float64(current))
-			t.progressText.SetText(fmt.Sprintf("第 %d/%d 步 · %s", current, total, stepName))
-		} else {
-			t.progress.SetValue(0)
-			t.progressText.SetText("就绪")
 		}
+		t.progressText.set(current, total, stepName)
 	})
 }
 

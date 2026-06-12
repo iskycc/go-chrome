@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"fmt"
+
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"go-chrome/internal/flow"
@@ -37,6 +40,66 @@ func newTruncatingLabel(initial string) *widget.Label {
 	l := widget.NewLabel(initial)
 	l.Truncation = fyne.TextTruncateEllipsis
 	return l
+}
+
+// progressLabel splits progress display into a fixed-width prefix
+// ("第 N/M 步 ·") and a truncating step name. This guarantees the progress
+// numbers are always readable even when the available width is tight.
+type progressLabel struct {
+	prefix *widget.Label
+	step   *widget.Label
+	box    fyne.CanvasObject
+}
+
+// newProgressLabel creates a progress label with fixed prefix and step widths.
+func newProgressLabel(prefixWidth, stepWidth float32) *progressLabel {
+	p := &progressLabel{}
+	p.prefix = widget.NewLabel("就绪")
+	p.prefix.Wrapping = fyne.TextWrapOff
+
+	p.step = widget.NewLabel("")
+	p.step.Wrapping = fyne.TextWrapOff
+	p.step.Truncation = fyne.TextTruncateEllipsis
+
+	prefixBox := container.NewGridWrap(fyne.NewSize(prefixWidth, p.prefix.MinSize().Height), p.prefix)
+	stepBox := container.NewGridWrap(fyne.NewSize(stepWidth, p.step.MinSize().Height), p.step)
+	p.box = container.NewHBox(prefixBox, stepBox)
+	return p
+}
+
+// set updates the progress label. When total <= 0 it shows the idle state.
+func (p *progressLabel) set(current, total int, stepName string) {
+	if total <= 0 {
+		p.prefix.SetText("就绪")
+		p.step.SetText("")
+		return
+	}
+	p.prefix.SetText(fmt.Sprintf("第 %d/%d 步 ·", current, total))
+	p.step.SetText(stepName)
+}
+
+// currentStepLabel splits the "当前步骤：" prefix from the step name so the
+// prefix is always visible and only the step name is truncated when space is
+// tight.
+type currentStepLabel struct {
+	step *widget.Label
+	box  fyne.CanvasObject
+}
+
+func newCurrentStepLabel() *currentStepLabel {
+	c := &currentStepLabel{}
+	prefix := widget.NewLabel("当前步骤：")
+	prefix.Wrapping = fyne.TextWrapOff
+	c.step = widget.NewLabel("")
+	c.step.Wrapping = fyne.TextWrapOff
+	c.step.Truncation = fyne.TextTruncateEllipsis
+	stepBox := container.NewGridWrap(fyne.NewSize(360, c.step.MinSize().Height), c.step)
+	c.box = container.NewHBox(prefix, stepBox)
+	return c
+}
+
+func (c *currentStepLabel) SetText(name string) {
+	c.step.SetText(name)
 }
 
 var stepTypeOptions = []string{
