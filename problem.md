@@ -41,6 +41,7 @@
 | 27 | **退出时不关闭托管 Chrome** | `SetOnClosed` 只保存窗口大小和 recent flows | `SetOnClosed` 增加：先停 runner/stepRunner；如 `cfg.App.CloseManagedChromeOnExit=true` 则 `browserMgr.Stop()`；只杀 Manager 跟踪的 pid，不影响用户 Chrome |
 | 28 | **步骤页面字数超过显示框就乱码**（user-reported） | `truncate` 用 `s[:max-3]` 按**字节**切片；中文 UTF-8 一个字符 3 字节，切到字符中间就产生无效 UTF-8 → Fyne 显示成"豆腐块" | 抽出 `internal/textutil` 包，新 `Truncate` 按 rune 计数，永远返回合法 UTF-8；`flow_library.go` 同样的 byte 截断也修复；新增 11 个单元测试 + 属性测试 |
 | 29 | **截断后还是超出列框宽度**（user-reported） | Fyne 默认 `Label` 不会自动 ellipsis，超出列宽的字符会画到相邻列或被窗口裁掉；手算的字符上限（14/24）依赖字体/DPI 不准 | 抽出 `newTruncatingLabel()` helper（设 `Label.Truncation = fyne.TextTruncateEllipsis`，Fyne 2.4+）；`step_table.go` 表头模板、`flow_library.go` 列表模板、`run_panel.go` 的 `currentStep`/artifact 路径、`status_bar.go` 状态值都换成 truncating label；删掉手算的 `truncate(s, N)` 调用，让 Fyne 按实际宽度切 |
+| 30 | **顶栏状态全部显示为 `...`**（user-reported，#29 副作用） | Fyne 2.7.4 `widget/richtext.go` 的 `textRenderer.MinSize`：当 `Truncation != Off` 且不在 scroll 容器里时，min width = `charMinSize`（1 个字符）。HBox 里其他 widget 竞争空间时，truncating label 被压到 1 字符宽就显示 `...` | `status_bar.go` 的 value label 包一层 `container.NewGridWrap(fixedWidth, label)` 给一个稳定的像素预算（flow=180, save=110, chrome=110, run=160），里面再用 `Truncation.Ellipsis`；`setValue` 加一个 `truncate(text, 200)` 安全网。`step_table.go` / `flow_library.go` / `run_panel.go` 不受影响（Table/List cell 宽度是确定的） |
 
 ## 待优化 / 环境相关
 
