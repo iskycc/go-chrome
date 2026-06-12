@@ -2,13 +2,13 @@ package ui
 
 import (
 	"go-chrome/internal/flow"
+	"go-chrome/internal/textutil"
 )
 
+// truncate is a thin wrapper around textutil.Truncate for use inside the
+// UI package. Kept as a local name to keep call sites short.
 func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-3] + "..."
+	return textutil.Truncate(s, max)
 }
 
 var stepTypeOptions = []string{

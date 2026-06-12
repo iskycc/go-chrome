@@ -88,12 +88,12 @@ func (p *stepTablePanel) initTable() {
 			case 4:
 				label.SetText(stepTypeLabel(s.Type))
 			case 5:
-				label.SetText(truncate(s.Target.Value, 20))
+				label.SetText(truncate(s.Target.Value, 24))
 			case 6:
 				if s.Input.MaskInLogs {
 					label.SetText("***")
 				} else {
-					label.SetText(truncate(s.Input.Text, 20))
+					label.SetText(truncate(s.Input.Text, 24))
 				}
 			case 7:
 				label.SetText(fmt.Sprintf("%dms", s.WaitAfterMs))

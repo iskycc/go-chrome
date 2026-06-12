@@ -36,16 +36,11 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 				return
 			}
 			f := p.flows[id]
-			name := f.Name
-			if len(name) > 24 {
-				name = name[:21] + "..."
-			}
+			name := truncate(f.Name, 24)
 			tags := ""
 			if len(f.Tags) > 0 {
 				ts := strings.Join(f.Tags, ", ")
-				if len(ts) > 20 {
-					ts = ts[:17] + "..."
-				}
+				ts = truncate(ts, 20)
 				tags = " [" + ts + "]"
 			}
 			item.(*widget.Label).SetText(name + tags)
