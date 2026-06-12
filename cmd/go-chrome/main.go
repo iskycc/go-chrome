@@ -35,6 +35,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	cfg.ResolvePaths(baseDir)
 	config.SetInstance(cfg)
 
 	// Init logger

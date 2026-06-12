@@ -28,6 +28,8 @@
 | 14 | CDP 连接重试过短 | 单次失败就放弃 | 改为 8 次重试，递增延迟（1s, 2s, 3s, ..., 7s） |
 | 15 | `-32000` 错误也走完整重试浪费时间 | 不区分可恢复错误 | 检测到 `-32000`（no browser open）立即快速失败 |
 | 16 | **Chrome 149 下 `Target.createTarget` 失败导致 CDP 连接阻塞** | `chromedp.NewRemoteAllocator` 的远程上下文默认会创建新 tab，触发环境中失败的 `Target.createTarget` 路径 | 启动参数追加 `about:blank` 保证存在 page target；`browser.Connect()` 先通过 `/json/list` 选择已有 page，并用 `chromedp.WithTargetID` 绑定，避免默认创建新 tab；无 page 时才用 HTTP `/json/new` 兜底 |
+| 17 | **GUI 点击运行后"无操作"且日志超时**（user-reported） | 流程从 `ListSorted()` 加载时**不包含 steps**（DB 优化设计，避免 N+1 查询），`flow_library.go` 的 `OnSelected` 把不含 steps 的 flow 传给 runner，导致 runner 立即 `StatusFailed` | `flow_library.go:54` 在 `OnSelected` 时改用 `flowStore.Load(id)` 重新加载完整流程（含 steps） |
+| 18 | **DevToolsActivePort 永远找不到**（user-reported） | `app-config.json` 的 `installDir` / `userDataDir` 是相对路径（如 `./chrome`、`./data/chrome-profile`），Chrome 解析 `--user-data-dir` 时使用 **Chrome.exe 自己的 CWD**（`chrome/chrome-win64/`），结果 `DevToolsActivePort` 写到了 `chrome/chrome-win64/data/replay-tmp/...`，而 Go 代码在 `data/replay-tmp/...` 等，30s 超时 | `config.go` 新增 `ResolvePaths(baseDir)` 方法；`cmd/go-chrome/main.go` 启动时用 `app.ExecutableDir()` 作为 base 把所有相对路径转成绝对路径 |
 
 ## 待优化 / 环境相关
 

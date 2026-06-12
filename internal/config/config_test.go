@@ -126,3 +126,41 @@ func TestConfigInstance(t *testing.T) {
 		t.Fatalf("unexpected singleton config: %v", Get())
 	}
 }
+
+func TestResolvePaths(t *testing.T) {
+	cfg := Default()
+	cfg.Chrome.InstallDir = "./chrome"
+	cfg.Chrome.UserDataDir = "./data/profile"
+
+	base := `C:\app\base`
+	cfg.ResolvePaths(base)
+
+	wantInstall := filepath.Join(base, "chrome")
+	wantData := filepath.Join(base, "data", "profile")
+	if cfg.Chrome.InstallDir != wantInstall {
+		t.Errorf("InstallDir: got %q, want %q", cfg.Chrome.InstallDir, wantInstall)
+	}
+	if cfg.Chrome.UserDataDir != wantData {
+		t.Errorf("UserDataDir: got %q, want %q", cfg.Chrome.UserDataDir, wantData)
+	}
+}
+
+func TestResolvePathsLeavesAbsoluteAlone(t *testing.T) {
+	cfg := Default()
+	cfg.Chrome.InstallDir = `C:\abs\chrome`
+	cfg.Chrome.UserDataDir = `D:\abs\data`
+
+	cfg.ResolvePaths(`C:\app\base`)
+
+	if cfg.Chrome.InstallDir != `C:\abs\chrome` {
+		t.Errorf("InstallDir changed: %q", cfg.Chrome.InstallDir)
+	}
+	if cfg.Chrome.UserDataDir != `D:\abs\data` {
+		t.Errorf("UserDataDir changed: %q", cfg.Chrome.UserDataDir)
+	}
+}
+
+func TestResolvePathsNilSafe(t *testing.T) {
+	var cfg *Config
+	cfg.ResolvePaths(`C:\app\base`)
+}

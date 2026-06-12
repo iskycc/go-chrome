@@ -162,3 +162,19 @@ func Get() *Config {
 func SetInstance(cfg *Config) {
 	instance = cfg
 }
+
+// ResolvePaths converts relative paths in the config to absolute paths
+// relative to the given base directory. This is important because Chrome
+// resolves --user-data-dir against its own CWD, not go-chrome's CWD, so
+// we must pre-resolve the paths.
+func (c *Config) ResolvePaths(baseDir string) {
+	if c == nil {
+		return
+	}
+	if c.Chrome.InstallDir != "" && !filepath.IsAbs(c.Chrome.InstallDir) {
+		c.Chrome.InstallDir = filepath.Join(baseDir, c.Chrome.InstallDir)
+	}
+	if c.Chrome.UserDataDir != "" && !filepath.IsAbs(c.Chrome.UserDataDir) {
+		c.Chrome.UserDataDir = filepath.Join(baseDir, c.Chrome.UserDataDir)
+	}
+}

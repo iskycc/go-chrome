@@ -54,7 +54,14 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 	p.list.OnSelected = func(id widget.ListItemID) {
 		p.selectedIndex = int(id)
 		if id >= 0 && id < len(p.flows) {
-			p.app.onFlowSelected(p.flows[id])
+			f := p.flows[id]
+			loaded, err := p.app.flowStore.Load(f.ID)
+			if err != nil {
+				p.app.runPanel.log("读取流程失败: " + err.Error())
+				p.app.onFlowSelected(f)
+				return
+			}
+			p.app.onFlowSelected(loaded)
 		}
 	}
 	p.list.OnUnselected = func(id widget.ListItemID) { p.selectedIndex = -1 }
