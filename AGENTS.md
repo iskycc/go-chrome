@@ -76,8 +76,9 @@ go test ./internal/browser ./internal/runner ./internal/config ./internal/flow .
 
 - `internal/browser`
   - Chrome 下载、SHA256 校验、ZIP 解压、安装回滚。
-  - `Manager.Install()` 负责“已有 Chrome 则跳过下载”。
+  - `Manager.Install()` 负责"已有 Chrome 则跳过下载"。
   - `Manager.StartReplay()` 负责每次重放启动新的 Chrome。
+  - `Manager.Stop()` 负责关闭本程序启动的 Chrome 进程树（Windows 用 `taskkill /F /T /PID`，非 Windows 用 `kill -9`），只杀 `m.proc` 跟踪的 pid，不影响用户自己打开的 Chrome。
   - `Launch()` 负责 Chrome 启动参数。
 - `internal/runner`
   - `Runner.RunFlow()` 串联 Chrome 准备、CDP 连接、步骤执行和事件输出。
@@ -91,6 +92,7 @@ go test ./internal/browser ./internal/runner ./internal/config ./internal/flow .
 - `internal/ui`
   - Fyne GUI。
   - 后台 goroutine 更新 UI 时必须使用 `fyne.Do` 或等价主线程调度。
+  - 运行面板的"关闭本程序启动的 Chrome"按钮只杀 `Manager` 跟踪的 Chrome 进程，不影响用户手动打开的 Chrome。
 
 ## 离线运行检查点
 
