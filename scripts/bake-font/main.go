@@ -5,8 +5,11 @@
 //
 //	go run ./scripts/bake-font input.wght.ttf output.ttf [newDefaultWeight]
 //
-// The default newDefault is 450 (between Regular 400 and Medium 500),
-// which makes CJK glyphs in CascadiaNextSC noticeably more readable.
+// The default newDefault is 600 (SemiBold), which is what the project
+// ships in assets/fonts/CascadiaNextSC-600.ttf. Bumping above 600
+// (700 Bold, 800 ExtraBold) is possible but tends to crowd Chinese
+// characters at 14pt and the visual difference in normal-weight text
+// is marginal.
 //
 // The font is loaded as a variable font in Fyne's text shaper; because
 // Fyne's loader does not call SetVariations, glyph outlines are
