@@ -54,7 +54,7 @@ func newRunPanel(app *App) *runPanel {
 	})
 	p.app.stepBtn = stepBtn
 	p.stopBtn = widget.NewButtonWithIcon("停止", theme.MediaStopIcon(), func() {
-		p.app.runner.Stop()
+		p.app.stopCurrentRun()
 	})
 	p.stopBtn.Hide()
 	p.closeChBtn = widget.NewButtonWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() {

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -33,32 +34,73 @@ const (
 	RunFailed
 )
 
+// statusItem bundles the static field-name label with the dynamic value
+// label and the dynamic color dot, so callers can update them as a unit.
+type statusItem struct {
+	field  *widget.Label
+	value  *widget.Label
+	dot    *canvas.Circle
+	row    fyne.CanvasObject
+	dotClr color.Color
+}
+
+func newStatusItem(field, defaultValue string, defaultColor color.Color) *statusItem {
+	si := &statusItem{
+		field:  widget.NewLabelWithStyle(field, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		value:  widget.NewLabel(defaultValue),
+		dot:    canvas.NewCircle(defaultColor),
+		dotClr: defaultColor,
+	}
+	si.row = container.NewHBox(si.dot, si.field, si.value)
+	return si
+}
+
+func (si *statusItem) setValue(text string) {
+	si.value.SetText(text)
+}
+
+func (si *statusItem) setColor(c color.Color) {
+	si.dotClr = c
+	si.dot.FillColor = c
+	si.dot.Refresh()
+}
+
 type statusBar struct {
-	app         *App
-	widget      fyne.CanvasObject
-	flowLabel   *widget.Label
-	saveLabel   *widget.Label
-	chromeLabel *widget.Label
-	runLabel    *widget.Label
+	app    *App
+	widget fyne.CanvasObject
+
+	flow   *statusItem
+	save   *statusItem
+	chrome *statusItem
+	run    *statusItem
+
+	saveResetTimer *time.Timer
 }
 
 func newStatusBar(app *App) *statusBar {
 	sb := &statusBar{app: app}
-	sb.flowLabel = widget.NewLabel("未选择流程")
-	sb.saveLabel = widget.NewLabel("未修改")
-	sb.chromeLabel = widget.NewLabel("未安装")
-	sb.runLabel = widget.NewLabel("空闲")
+	sb.flow = newStatusItem("当前流程：", "未选择", statusColorGray())
+	sb.save = newStatusItem("保存状态：", "未修改", statusColorGreen())
+	sb.chrome = newStatusItem("Chrome：", "未安装", statusColorYellow())
+	sb.run = newStatusItem("运行状态：", "空闲", statusColorGray())
 
-	spacer := canvas.NewRectangle(color.Transparent)
-	spacer.SetMinSize(fyne.NewSize(20, 1))
+	title := widget.NewLabelWithStyle("Go Chrome", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	titleSpacer := canvas.NewRectangle(color.Transparent)
+	titleSpacer.SetMinSize(fyne.NewSize(20, 1))
+
+	itemSpacer := canvas.NewRectangle(color.Transparent)
+	itemSpacer.SetMinSize(fyne.NewSize(12, 1))
 
 	sb.widget = container.NewHBox(
-		widget.NewLabelWithStyle("Go Chrome", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		spacer,
-		container.NewHBox(canvas.NewCircle(statusColorGray()), sb.flowLabel),
-		container.NewHBox(canvas.NewCircle(statusColorGray()), sb.saveLabel),
-		container.NewHBox(canvas.NewCircle(statusColorGray()), sb.chromeLabel),
-		container.NewHBox(canvas.NewCircle(statusColorGray()), sb.runLabel),
+		title,
+		titleSpacer,
+		sb.flow.row,
+		itemSpacer,
+		sb.save.row,
+		itemSpacer,
+		sb.chrome.row,
+		itemSpacer,
+		sb.run.row,
 	)
 	return sb
 }
@@ -66,26 +108,42 @@ func newStatusBar(app *App) *statusBar {
 func (sb *statusBar) setFlow(name string) {
 	fyne.Do(func() {
 		if name == "" {
-			sb.flowLabel.SetText("未选择流程")
+			sb.flow.setValue("未选择")
 		} else {
-			sb.flowLabel.SetText(name)
+			sb.flow.setValue(name)
 		}
 	})
 }
 
 func (sb *statusBar) setSave(st SaveStatus) {
 	fyne.Do(func() {
+		// When transitioning to a non-success state, cancel any pending
+		// success -> clean timer so the indicator does not get clobbered.
+		if sb.saveResetTimer != nil {
+			sb.saveResetTimer.Stop()
+			sb.saveResetTimer = nil
+		}
 		switch st {
 		case SaveUnmodified:
-			sb.saveLabel.SetText("未修改")
+			sb.save.setValue("未修改")
+			sb.save.setColor(statusColorGreen())
 		case SaveDirty:
-			sb.saveLabel.SetText("有未保存修改")
+			sb.save.setValue("有未保存修改")
+			sb.save.setColor(statusColorYellow())
 		case SaveSaving:
-			sb.saveLabel.SetText("保存中")
+			sb.save.setValue("保存中")
+			sb.save.setColor(statusColorBlue())
 		case SaveSuccess:
-			sb.saveLabel.SetText("已保存")
+			sb.save.setValue("已保存")
+			sb.save.setColor(statusColorGreen())
+			// Hold the "saved" state for 2 seconds, then settle to "未修改"
+			// so the user actually sees the success indicator.
+			sb.saveResetTimer = time.AfterFunc(2*time.Second, func() {
+				sb.setSave(SaveUnmodified)
+			})
 		case SaveFailed:
-			sb.saveLabel.SetText("保存失败")
+			sb.save.setValue("保存失败")
+			sb.save.setColor(statusColorRed())
 		}
 	})
 }
@@ -94,17 +152,23 @@ func (sb *statusBar) setChrome(st browser.ChromeStatus) {
 	fyne.Do(func() {
 		switch st {
 		case browser.ChromeNotInstalled:
-			sb.chromeLabel.SetText("未安装")
+			sb.chrome.setValue("未安装")
+			sb.chrome.setColor(statusColorYellow())
 		case browser.ChromeInstalled:
-			sb.chromeLabel.SetText("已安装")
+			sb.chrome.setValue("已安装")
+			sb.chrome.setColor(statusColorGreen())
 		case browser.ChromeDownloading:
-			sb.chromeLabel.SetText("下载中")
+			sb.chrome.setValue("下载中")
+			sb.chrome.setColor(statusColorBlue())
 		case browser.ChromeStarting:
-			sb.chromeLabel.SetText("启动中")
+			sb.chrome.setValue("启动中")
+			sb.chrome.setColor(statusColorBlue())
 		case browser.ChromeRunning:
-			sb.chromeLabel.SetText("已启动")
+			sb.chrome.setValue("已启动")
+			sb.chrome.setColor(statusColorGreen())
 		case browser.ChromeStartFailed:
-			sb.chromeLabel.SetText("启动失败")
+			sb.chrome.setValue("启动失败")
+			sb.chrome.setColor(statusColorRed())
 		}
 	})
 }
@@ -113,21 +177,25 @@ func (sb *statusBar) setRun(st RunStatus, current, total int, msg string) {
 	fyne.Do(func() {
 		switch st {
 		case RunIdle:
-			sb.runLabel.SetText("空闲")
+			sb.run.setValue("空闲")
+			sb.run.setColor(statusColorGray())
 		case RunRunning:
 			if total > 0 {
-				sb.runLabel.SetText(fmt.Sprintf("运行中 %d/%d", current, total))
+				sb.run.setValue(fmt.Sprintf("运行中 %d/%d", current, total))
 			} else {
-				sb.runLabel.SetText("运行中")
+				sb.run.setValue("运行中")
 			}
+			sb.run.setColor(statusColorBlue())
 		case RunCompleted:
-			sb.runLabel.SetText("已完成")
+			sb.run.setValue("已完成")
+			sb.run.setColor(statusColorGreen())
 		case RunFailed:
 			if msg != "" {
-				sb.runLabel.SetText("失败：" + msg)
+				sb.run.setValue("失败：" + msg)
 			} else {
-				sb.runLabel.SetText("失败")
+				sb.run.setValue("失败")
 			}
+			sb.run.setColor(statusColorRed())
 		}
 	})
 }

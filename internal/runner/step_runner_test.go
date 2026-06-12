@@ -209,3 +209,34 @@ func TestStepRunnerResultAfterFinish(t *testing.T) {
 		t.Fatalf("unexpected result status: %+v", res)
 	}
 }
+
+func TestStepRunnerStopHaltsPendingSteps(t *testing.T) {
+	exec := &fakeStepExecutor{results: []Status{StatusSuccess, StatusSuccess}}
+	sr := initializedStepRunner(exec, nil,
+		testStep("first", flow.ErrStop),
+		testStep("never-runs", flow.ErrStop),
+	)
+
+	sr.Stop()
+	if sr.started {
+		t.Fatal("Stop should mark runner as not started")
+	}
+	if sr.cdp != nil {
+		t.Fatal("expected cdp cleared after Stop")
+	}
+	// After Stop, the runner is fully shut down. The next Next() call
+	// returns "not initialized" so the caller can detect the shutdown.
+	_, _, err := sr.Next()
+	if err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("expected 'not initialized' error, got %v", err)
+	}
+	if exec.calls != 0 {
+		t.Fatalf("Stop should prevent any further step execution, got %d calls", exec.calls)
+	}
+}
+
+func TestStepRunnerStopIsNoopWhenNotStarted(t *testing.T) {
+	sr := &StepRunner{}
+	// Should not panic on a never-initialized runner.
+	sr.Stop()
+}

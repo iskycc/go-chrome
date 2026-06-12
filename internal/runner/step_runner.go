@@ -31,6 +31,7 @@ type StepRunner struct {
 	snapDir      string
 	result       *RunResult
 	started      bool
+	stopped      bool
 
 	connectCDP        func(int) (cdpSession, error)
 	newActionExecutor func(context.Context, string, bool) stepExecutor
@@ -66,6 +67,7 @@ func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history Histor
 
 // Init initializes Chrome and CDP for the given flow.
 func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, environmentID string) error {
+	sr.stopped = false
 	if missing := MissingEnvVars(f, 0, envProvider); len(missing) > 0 {
 		return fmt.Errorf("运行前检查失败，缺少环境变量: %s", strings.Join(missing, ", "))
 	}
@@ -129,6 +131,10 @@ func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, envir
 func (sr *StepRunner) Next() (*StepResult, bool, error) {
 	if !sr.started {
 		return nil, false, fmt.Errorf("not initialized")
+	}
+	if sr.stopped {
+		sr.finish()
+		return nil, true, nil
 	}
 	if sr.currentIndex >= len(sr.flow.Steps) {
 		sr.finish()
@@ -223,6 +229,24 @@ func (sr *StepRunner) Result() *RunResult {
 // Close disconnects from CDP.
 func (sr *StepRunner) Close() {
 	if sr.cdp != nil {
+		sr.cdp.Close()
+		sr.cdp = nil
+	}
+	sr.started = false
+}
+
+// Stop signals the step runner to stop after the current step completes.
+// If a step is currently executing, the CDP session is closed to cancel
+// the action executor's context. The next call to Next() will return
+// (nil, true, nil) so the caller can finalize UI state.
+func (sr *StepRunner) Stop() {
+	if !sr.started {
+		return
+	}
+	sr.stopped = true
+	if sr.cdp != nil {
+		// Closing the CDP session cancels the action executor's context,
+		// which interrupts any in-flight step execution.
 		sr.cdp.Close()
 		sr.cdp = nil
 	}

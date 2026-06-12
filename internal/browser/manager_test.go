@@ -189,3 +189,26 @@ func TestKillProcessTreeInvalidPID(t *testing.T) {
 		t.Skip("unexpectedly succeeded; may be reusing a real pid")
 	}
 }
+
+func TestManagerActiveUserDataDirTrackedAndCleared(t *testing.T) {
+	mgr := NewManager(&config.ChromeConfig{
+		InstallDir:  filepath.Join(t.TempDir(), "chrome"),
+		UserDataDir: filepath.Join(t.TempDir(), "profile"),
+	})
+	if mgr.activeUserDataDir != "" {
+		t.Fatalf("expected empty initial activeUserDataDir, got %q", mgr.activeUserDataDir)
+	}
+	// Manually set the active dir (the same way Start/StartReplay do) to
+	// exercise the field's lifecycle without needing a real Chrome.
+	mgr.activeUserDataDir = filepath.Join(mgr.cfg.UserDataDir, "replay", "run-1")
+	if mgr.activeUserDataDir == "" {
+		t.Fatal("expected activeUserDataDir to be set")
+	}
+	// Stop without a proc clears the dir, since Stop() must reset state.
+	if err := mgr.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if mgr.activeUserDataDir != "" {
+		t.Fatalf("expected activeUserDataDir cleared after Stop, got %q", mgr.activeUserDataDir)
+	}
+}

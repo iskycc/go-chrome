@@ -31,6 +31,14 @@
 | 17 | **GUI 点击运行后"无操作"且日志超时**（user-reported） | 流程从 `ListSorted()` 加载时**不包含 steps**（DB 优化设计，避免 N+1 查询），`flow_library.go` 的 `OnSelected` 把不含 steps 的 flow 传给 runner，导致 runner 立即 `StatusFailed` | `flow_library.go:54` 在 `OnSelected` 时改用 `flowStore.Load(id)` 重新加载完整流程（含 steps） |
 | 18 | **DevToolsActivePort 永远找不到**（user-reported） | `app-config.json` 的 `installDir` / `userDataDir` 是相对路径（如 `./chrome`、`./data/chrome-profile`），Chrome 解析 `--user-data-dir` 时使用 **Chrome.exe 自己的 CWD**（`chrome/chrome-win64/`），结果 `DevToolsActivePort` 写到了 `chrome/chrome-win64/data/replay-tmp/...`，而 Go 代码在 `data/replay-tmp/...` 等，30s 超时 | `config.go` 新增 `ResolvePaths(baseDir)` 方法；`cmd/go-chrome/main.go` 启动时用 `app.ExecutableDir()` 作为 base 把所有相对路径转成绝对路径 |
 | 19 | **运行面板缺少一键关闭本程序启动的 Chrome 按钮**（user-reported） | 用户在外部已经打开了 Chrome 时，关闭按钮误伤用户自己的 Chrome | 新增 `closeManagedChrome()`：只 kill `Manager` 跟踪的 pid（用 `taskkill /F /T /PID` 杀进程树），不影响用户进程；按钮在 `ChromeRunning/ChromeStarting` 时启用，否则禁用；点击先弹确认框 |
+| 20 | **顶部状态栏缺少字段名** | 状态只有 `未修改`、`已安装`、`已完成`，用户不知道是哪个对象的状态 | `status_bar.go` 重写为 `statusItem` 结构：固定字段名（`当前流程：`、`保存状态：`、`Chrome：`、`运行状态：`）+ 动态值 + 动态颜色圆点；状态切换时圆点颜色同步变化 |
+| 21 | **启动后不恢复上次流程** | recent flow IDs 已存盘但启动时未使用 | `buildUI()` 末尾调用 `restoreLastFlowSelection()`：先尝试最近 ID，没有则选第一个，都没有则保持空状态；`selectFlow` 改返回 `bool` |
+| 22 | **未保存修改弹窗语义错误** | `dialog.ShowConfirm` 的"取消"被理解为"放弃修改并继续"，且 `saveCurrentFlow` 失败后仍继续 `next()` | `promptSaveBefore` 改三选一弹窗：`保存并继续` / `放弃修改` / `取消`；`saveCurrentFlow` 拆为 UI 入口和 `saveCurrentFlowInternal() error`，保存失败时**不**继续 next |
+| 23 | **保存成功状态被立即覆盖** | `setSave(SaveSuccess)` 后立即 `markClean()` 改回 `未修改` | `setSave(SaveSuccess)` 启动 2s 定时器，2s 后自动转为 `SaveUnmodified`；期间任何状态切换会取消定时器 |
+| 24 | **没有"从模板创建"功能** | 只能导入本地 JSON 或写死导入示例 | 新增 `internal/flow/templates.go` 内置 4 个模板（登录测试、空白、表单填写、文本断言）；UI 增加"从模板创建"对话框和入口；空状态按钮改为"新建空白流程" + "从模板创建" |
+| 25 | **单步执行时停止按钮无效** | `Runner.Stop` 只能停止完整运行；`StepRunner` 没有 `Stop()` | `StepRunner` 新增 `Stop()`：设 `stopped` 标志 + 关闭 CDP 取消 action executor context；`App.stopCurrentRun()` 区分处理 Runner 和 StepRunner；停止后按钮恢复"单步执行" |
+| 26 | **Chrome 状态显示不准** | `Status()` 只看 `cfg.UserDataDir` 根目录的 DevToolsActivePort，重放 Chrome 状态永远不对 | `Manager` 新增 `activeUserDataDir` 字段，`Start`/`StartReplay` 设置，`Stop` 清空；`Status()` 优先读 active dir；新增单元测试 `TestManagerActiveUserDataDirTrackedAndCleared` |
+| 27 | **退出时不关闭托管 Chrome** | `SetOnClosed` 只保存窗口大小和 recent flows | `SetOnClosed` 增加：先停 runner/stepRunner；如 `cfg.App.CloseManagedChromeOnExit=true` 则 `browserMgr.Stop()`；只杀 Manager 跟踪的 pid，不影响用户 Chrome |
 
 ## 待优化 / 环境相关
 

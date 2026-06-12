@@ -20,6 +20,7 @@ import (
 	"go-chrome/internal/config"
 	"go-chrome/internal/db"
 	"go-chrome/internal/flow"
+	"go-chrome/internal/logx"
 	"go-chrome/internal/runner"
 	"go-chrome/internal/template"
 )
@@ -82,6 +83,19 @@ func (a *App) Run() {
 	a.mainWin = a.fyneApp.NewWindow("Chrome 自动化编排工具")
 	a.mainWin.Resize(fyne.NewSize(float32(a.cfg.App.WindowWidth), float32(a.cfg.App.WindowHeight)))
 	a.mainWin.SetOnClosed(func() {
+		// Stop any in-flight runs before tearing down Chrome so CDP
+		// sessions close cleanly.
+		if a.stepRunner != nil {
+			a.stepRunner.Stop()
+		}
+		if a.runner != nil && a.runner.IsRunning() {
+			a.runner.Stop()
+		}
+		if a.cfg.App.CloseManagedChromeOnExit && a.browserMgr != nil {
+			if err := a.browserMgr.Stop(); err != nil {
+				logx.Warnf("close managed Chrome on exit: %v", err)
+			}
+		}
 		size := a.mainWin.Canvas().Size()
 		a.cfg.App.WindowWidth = int(size.Width)
 		a.cfg.App.WindowHeight = int(size.Height)
@@ -178,6 +192,7 @@ func (a *App) buildUI() {
 	a.refreshFlowList()
 	a.runPanel.refreshEnvironments()
 	a.historyPanel.refreshFilters()
+	a.restoreLastFlowSelection()
 }
 
 func (a *App) markDirty() {
@@ -251,17 +266,26 @@ func (a *App) saveCurrentFlow() {
 		return
 	}
 	if err := flow.Validate(a.currentFlow); err != nil {
+		a.statusBar.setSave(SaveFailed)
 		dialog.ShowError(fmt.Errorf("保存前校验失败: %w", err), a.mainWin)
 		return
 	}
 	a.statusBar.setSave(SaveSaving)
-	if err := a.flowStore.Save(a.currentFlow); err != nil {
+	if err := a.saveCurrentFlowInternal(); err != nil {
 		a.statusBar.setSave(SaveFailed)
 		dialog.ShowError(err, a.mainWin)
 		return
 	}
 	a.statusBar.setSave(SaveSuccess)
 	a.markClean()
+}
+
+// saveCurrentFlowInternal writes the current flow to storage and returns
+// the underlying error so callers can decide whether to continue (e.g. when
+// used by the unsaved-changes prompt, the caller should NOT switch flows
+// if this returns an error).
+func (a *App) saveCurrentFlowInternal() error {
+	return a.flowStore.Save(a.currentFlow)
 }
 
 func (a *App) importFlow() {
@@ -345,6 +369,9 @@ func (a *App) closeManagedChrome() {
 		if a.runner != nil && a.runner.IsRunning() {
 			a.runner.Stop()
 		}
+		if a.stepRunner != nil {
+			a.stepRunner.Stop()
+		}
 		if err := a.browserMgr.Stop(); err != nil {
 			a.runPanel.log("关闭 Chrome 失败：" + err.Error())
 			fyne.Do(func() { dialog.ShowError(err, a.mainWin) })
@@ -352,6 +379,26 @@ func (a *App) closeManagedChrome() {
 		}
 		a.runPanel.log("已关闭本程序启动的 Chrome")
 	}, a.mainWin)
+}
+
+// stopCurrentRun stops whatever is currently running: either the full
+// Runner or the StepRunner. After stopping, the UI is reset to a clean
+// state and the user can start a new run.
+func (a *App) stopCurrentRun() {
+	if a.runner != nil && a.runner.IsRunning() {
+		a.runner.Stop()
+		a.runPanel.log("已停止完整流程运行")
+		return
+	}
+	if a.stepRunner != nil && !a.stepRunner.IsFinished() {
+		a.stepRunner.Stop()
+		a.runPanel.log("已停止单步执行")
+		a.runPanel.setRunning(false)
+		a.stepBtn.SetText("单步执行")
+		a.stepRunner = nil
+		return
+	}
+	a.runPanel.log("当前没有正在运行的任务")
 }
 
 func (a *App) runCurrentFlow() {
@@ -623,6 +670,31 @@ func (a *App) setCurrentFlow(f *flow.Flow) {
 	a.refreshHistory()
 }
 
+// restoreLastFlowSelection picks the flow to open on startup. Order:
+//  1. Most recent flow ID from the recent store, if it still exists.
+//  2. The first flow in the library, if any.
+//  3. Empty selection (shows the empty state).
+//
+// The flow is selected via flowLibrary.selectFlow, which goes through the
+// widget.List.OnSelected handler, so the full flow (including steps) is
+// reloaded from storage.
+func (a *App) restoreLastFlowSelection() {
+	if a.flowLibrary == nil {
+		return
+	}
+	if len(a.flowLibrary.flows) == 0 {
+		return
+	}
+	if a.recentStore != nil {
+		for _, id := range a.recentStore.FlowIDs {
+			if a.flowLibrary.selectFlow(id) {
+				return
+			}
+		}
+	}
+	a.flowLibrary.selectFlow(a.flowLibrary.flows[0].ID)
+}
+
 func (a *App) onFlowSelected(f *flow.Flow) {
 	if a.dirty && a.currentFlow != nil && a.currentFlow.ID != f.ID {
 		a.promptSaveBefore(func() { a.setCurrentFlow(f) })
@@ -631,18 +703,62 @@ func (a *App) onFlowSelected(f *flow.Flow) {
 	a.setCurrentFlow(f)
 }
 
+// promptSaveBefore shows a 3-way dialog asking the user what to do with
+// unsaved changes. The 3 options are:
+//   - 保存并继续: save the current flow; only call next() if save succeeds
+//   - 放弃修改:    mark the flow as clean and call next()
+//   - 取消:        do nothing
 func (a *App) promptSaveBefore(next func()) {
-	dialog.ShowConfirm("未保存的修改",
-		fmt.Sprintf("当前流程 [%s] 有未保存的修改，是否保存？", a.currentFlow.Name),
-		func(save bool) {
-			if save {
-				a.saveCurrentFlow()
-				next()
-			} else {
-				a.markClean()
-				next()
-			}
-		}, a.mainWin)
+	name := ""
+	if a.currentFlow != nil {
+		name = a.currentFlow.Name
+	}
+
+	body := widget.NewLabel(fmt.Sprintf(
+		"当前流程 [%s] 有未保存的修改，要如何处理？",
+		name,
+	))
+	body.Alignment = fyne.TextAlignLeading
+	body.Wrapping = fyne.TextWrapWord
+
+	saveBtn := widget.NewButtonWithIcon("保存并继续", theme.DocumentSaveIcon(), nil)
+	discardBtn := widget.NewButtonWithIcon("放弃修改", theme.DeleteIcon(), nil)
+	cancelBtn := widget.NewButton("取消", nil)
+
+	content := container.NewVBox(body, container.NewHBox(saveBtn, discardBtn, cancelBtn))
+
+	d := dialog.NewCustomWithoutButtons("未保存的修改", content, a.mainWin)
+	d.Resize(fyne.NewSize(480, 180))
+	d.SetButtons([]fyne.CanvasObject{saveBtn, discardBtn, cancelBtn})
+
+	saveBtn.OnTapped = func() {
+		d.Hide()
+		if a.currentFlow == nil {
+			next()
+			return
+		}
+		if err := flow.Validate(a.currentFlow); err != nil {
+			dialog.ShowError(fmt.Errorf("保存前校验失败: %w", err), a.mainWin)
+			return
+		}
+		if err := a.saveCurrentFlowInternal(); err != nil {
+			dialog.ShowError(err, a.mainWin)
+			return
+		}
+		a.statusBar.setSave(SaveSuccess)
+		a.markClean()
+		next()
+	}
+	discardBtn.OnTapped = func() {
+		d.Hide()
+		a.markClean()
+		next()
+	}
+	cancelBtn.OnTapped = func() {
+		d.Hide()
+	}
+
+	d.Show()
 }
 
 func (a *App) onFlowDelete(f *flow.Flow) {

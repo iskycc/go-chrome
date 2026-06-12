@@ -30,6 +30,11 @@ type Manager struct {
 	cfg      *config.ChromeConfig
 	manifest VersionManifest
 	proc     *os.Process
+	// activeUserDataDir is the profile dir currently used by the managed
+	// Chrome. It is set by Start/StartReplay and cleared by Stop so that
+	// Status() can read the right DevToolsActivePort regardless of whether
+	// we launched with the user-config dir or a per-replay subdir.
+	activeUserDataDir string
 }
 
 // NewManager creates a new browser manager.
@@ -259,6 +264,7 @@ func (m *Manager) Start() (int, error) {
 		return 0, err
 	}
 	m.proc = proc
+	m.activeUserDataDir = m.cfg.UserDataDir
 	logx.Infof("Chrome started on port %d", port)
 	return port, nil
 }
@@ -282,6 +288,7 @@ func (m *Manager) StartReplay(runID string) (int, error) {
 		return 0, err
 	}
 	m.proc = proc
+	m.activeUserDataDir = userDataDir
 	logx.Infof("Replay Chrome started on port %d", port)
 	return port, nil
 }
@@ -292,6 +299,7 @@ func (m *Manager) StartReplay(runID string) (int, error) {
 // system are not touched.
 func (m *Manager) Stop() error {
 	if m.proc == nil {
+		m.activeUserDataDir = ""
 		return nil
 	}
 	pid := m.proc.Pid
@@ -299,6 +307,7 @@ func (m *Manager) Stop() error {
 	killErr := killProcessTree(pid)
 	_, _ = m.proc.Wait()
 	m.proc = nil
+	m.activeUserDataDir = ""
 	return killErr
 }
 
@@ -327,11 +336,19 @@ func killProcessTree(pid int) error {
 // Status returns the current Chrome installation/launch status.
 func (m *Manager) Status() ChromeStatus {
 	if m.proc != nil {
-		if port, err := ReadDevToolsPort(m.cfg.UserDataDir); err == nil && port > 0 {
+		// Prefer the active profile dir (may be a replay subdir);
+		// fall back to the configured UserDataDir for backwards
+		// compatibility.
+		dir := m.activeUserDataDir
+		if dir == "" {
+			dir = m.cfg.UserDataDir
+		}
+		if port, err := ReadDevToolsPort(dir); err == nil && port > 0 {
 			return ChromeRunning
 		}
 		return ChromeStarting
 	}
+	m.activeUserDataDir = ""
 	if m.IsInstalled() {
 		return ChromeInstalled
 	}

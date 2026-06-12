@@ -90,6 +90,9 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 		cloneItem.Disabled = !hasSelection
 		deleteItem.Disabled = !hasSelection
 		menu := fyne.NewMenu("流程操作",
+			fyne.NewMenuItemWithIcon("新建流程", theme.ContentAddIcon(), func() { p.app.createNewFlow() }),
+			fyne.NewMenuItemWithIcon("从模板创建", theme.ListIcon(), func() { p.app.showTemplatePickerDialog() }),
+			fyne.NewMenuItemSeparator(),
 			fyne.NewMenuItemWithIcon("导入流程", theme.DownloadIcon(), func() { p.app.importFlow() }),
 			fyne.NewMenuItemSeparator(),
 			exportItem,
@@ -183,11 +186,12 @@ func (p *flowLibraryPanel) refresh() {
 	p.filter()
 }
 
-func (p *flowLibraryPanel) selectFlow(id string) {
+func (p *flowLibraryPanel) selectFlow(id string) bool {
 	for i, f := range p.flows {
 		if f.ID == id {
 			p.list.Select(i)
-			return
+			return true
 		}
 	}
+	return false
 }
