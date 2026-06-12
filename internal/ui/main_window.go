@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -217,9 +218,13 @@ func (a *App) createNewFlow() {
 func (a *App) doCreateNewFlow() {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("请输入流程名称")
-	dialog.ShowForm("新建流程", "创建", "取消", []*widget.FormItem{
-		widget.NewFormItem("流程名称", nameEntry),
-	}, func(ok bool) {
+
+	form := container.NewVBox(
+		widget.NewLabel("流程名称"),
+		nameEntry,
+	)
+
+	d := dialog.NewCustomConfirm("新建流程", "创建", "取消", form, func(ok bool) {
 		if !ok || nameEntry.Text == "" {
 			return
 		}
@@ -231,6 +236,8 @@ func (a *App) doCreateNewFlow() {
 		a.setCurrentFlow(f)
 		a.refreshFlowList()
 	}, a.mainWin)
+	d.Resize(fyne.NewSize(440, 160))
+	d.Show()
 }
 
 func (a *App) saveCurrentFlow() {
@@ -261,7 +268,7 @@ func (a *App) importFlow() {
 }
 
 func (a *App) doImportFlow() {
-	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
+	d := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil || reader == nil {
 			return
 		}
@@ -274,6 +281,9 @@ func (a *App) doImportFlow() {
 		a.setCurrentFlow(f)
 		a.refreshFlowList()
 	}, a.mainWin)
+	d.SetFilter(storage.NewExtensionFileFilter([]string{".json"}))
+	d.Resize(fyne.NewSize(680, 480))
+	d.Show()
 }
 
 func (a *App) exportFlow() {

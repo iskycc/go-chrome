@@ -25,10 +25,6 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 	p := &flowLibraryPanel{app: app}
 	p.search = widget.NewEntry()
 	p.search.SetPlaceHolder("搜索流程...")
-	p.search.OnChanged = func(s string) { p.filter() }
-
-	p.tagFilter = widget.NewSelect([]string{"全部标签"}, func(s string) { p.filter() })
-	p.tagFilter.SetSelected("全部标签")
 
 	p.list = widget.NewList(
 		func() int { return len(p.flows) },
@@ -62,6 +58,10 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 		}
 	}
 	p.list.OnUnselected = func(id widget.ListItemID) { p.selectedIndex = -1 }
+
+	p.search.OnChanged = func(s string) { p.filter() }
+	p.tagFilter = widget.NewSelect([]string{"全部标签"}, func(s string) { p.filter() })
+	p.tagFilter.SetSelected("全部标签")
 
 	newBtn := widget.NewButtonWithIcon("新建", theme.ContentAddIcon(), func() { p.app.createNewFlow() })
 	saveBtn := widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() { p.app.saveCurrentFlow() })

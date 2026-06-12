@@ -66,9 +66,13 @@ type fakeStepExecutor struct {
 	results []Status
 	errors  []string
 	calls   int
+	delay   time.Duration
 }
 
 func (e *fakeStepExecutor) ExecuteStep(_ context.Context, step flow.Step, _ *template.Engine) *StepResult {
+	if e.delay > 0 {
+		time.Sleep(e.delay)
+	}
 	idx := e.calls
 	e.calls++
 	status := StatusSuccess

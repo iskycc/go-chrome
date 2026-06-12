@@ -37,17 +37,17 @@ type Step struct {
 type StepType string
 
 const (
-	StepNavigate       StepType = "navigate"
-	StepClick          StepType = "click"
-	StepInput          StepType = "input"
-	StepClearAndInput  StepType = "clear_and_input"
-	StepWaitPresent    StepType = "wait_present"
-	StepWaitVisible    StepType = "wait_visible"
-	StepWaitFixed      StepType = "wait_fixed"
-	StepGetText        StepType = "get_text"
-	StepAssertExists   StepType = "assert_exists"
-	StepAssertText     StepType = "assert_text"
-	StepScreenshot     StepType = "screenshot"
+	StepNavigate      StepType = "navigate"
+	StepClick         StepType = "click"
+	StepInput         StepType = "input"
+	StepClearAndInput StepType = "clear_and_input"
+	StepWaitPresent   StepType = "wait_present"
+	StepWaitVisible   StepType = "wait_visible"
+	StepWaitFixed     StepType = "wait_fixed"
+	StepGetText       StepType = "get_text"
+	StepAssertExists  StepType = "assert_exists"
+	StepAssertText    StepType = "assert_text"
+	StepScreenshot    StepType = "screenshot"
 )
 
 // Target defines how to locate an element.
@@ -82,9 +82,9 @@ const (
 type ErrorPolicy string
 
 const (
-	ErrStop    ErrorPolicy = "stop"
+	ErrStop     ErrorPolicy = "stop"
 	ErrContinue ErrorPolicy = "continue"
-	ErrRetry   ErrorPolicy = "retry"
+	ErrRetry    ErrorPolicy = "retry"
 )
 
 // NewFlow creates a new flow with defaults.
@@ -131,7 +131,7 @@ func NewExampleLoginFlow() *Flow {
 	f.Steps[1].Target = Target{Strategy: TargetXPath, Value: "//input[@id='username']"}
 	f.Steps[1].Input = Input{Mode: InputTemplate, Text: "${var:user=SP${11000-11099}}"}
 	f.Steps[2].Target = Target{Strategy: TargetXPath, Value: "//input[@id='password']"}
-	f.Steps[2].Input = Input{Mode: InputTemplate, Text: "Password123"}
+	f.Steps[2].Input = Input{Mode: InputLiteral, Text: "Password123"}
 	f.Steps[3].Target = Target{Strategy: TargetXPath, Value: "//button[@type='submit']"}
 	f.Steps[4].Target = Target{Strategy: TargetXPath, Value: "//div[contains(text(),'欢迎')]"}
 	return f

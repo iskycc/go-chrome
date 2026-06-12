@@ -55,3 +55,23 @@ func TestMaskIfNeeded(t *testing.T) {
 		t.Fatalf("unexpected short mask: %s", got)
 	}
 }
+
+func TestNewRunnerNilConfig(t *testing.T) {
+	r := NewRunner(nil, nil, nil)
+	if r.cfg == nil {
+		t.Fatal("expected default config when nil passed")
+	}
+	if r.cfg.DefaultTimeoutMs != 10000 {
+		t.Fatalf("expected default timeout 10000, got %d", r.cfg.DefaultTimeoutMs)
+	}
+}
+
+func TestNewStepRunnerNilConfig(t *testing.T) {
+	sr := NewStepRunner(nil, nil, nil)
+	if sr.cfg == nil {
+		t.Fatal("expected default config when nil passed")
+	}
+	if sr.cfg.DefaultTimeoutMs != 10000 {
+		t.Fatalf("expected default timeout 10000, got %d", sr.cfg.DefaultTimeoutMs)
+	}
+}

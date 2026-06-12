@@ -197,6 +197,7 @@ func (m *Manager) Install(progress DownloadProgress) error {
 	}
 
 	// Atomic move
+	os.RemoveAll(m.cfg.InstallDir)
 	if err := os.Rename(tmpDir, m.cfg.InstallDir); err != nil {
 		os.RemoveAll(tmpDir)
 		m.rollback()

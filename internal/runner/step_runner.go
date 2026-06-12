@@ -39,6 +39,13 @@ type StepRunner struct {
 
 // NewStepRunner creates a new step runner.
 func NewStepRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySaver) *StepRunner {
+	if cfg == nil {
+		cfg = &config.RunnerConfig{
+			DefaultTimeoutMs:     10000,
+			DefaultWaitAfterMs:   500,
+			MaskInputValueInLogs: true,
+		}
+	}
 	var controller browserController
 	if bm != nil {
 		controller = bm
@@ -97,7 +104,7 @@ func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, envir
 		Status:        StatusRunning,
 	}
 
-	runID := sr.result.StartedAt.Format("20060102-150405.000")
+	runID := sr.result.StartedAt.Format("20060102-150405") + "-" + uuid.New().String()[:8]
 	port, err := sr.browser.StartReplay(runID)
 	if err != nil {
 		return fmt.Errorf("start chrome: %w", err)
@@ -109,7 +116,9 @@ func (sr *StepRunner) Init(f *flow.Flow, envProvider template.EnvProvider, envir
 	sr.cdp = cdp
 
 	sr.snapDir = filepath.Join("data", "run-history", f.ID, runID)
-	os.MkdirAll(sr.snapDir, 0755)
+	if err := os.MkdirAll(sr.snapDir, 0755); err != nil {
+		return fmt.Errorf("create snapshot dir: %w", err)
+	}
 	sr.actExec = sr.newActionExecutor(sr.cdp.Context(), sr.snapDir, sr.cfg.MaskInputValueInLogs)
 	sr.started = true
 	return nil

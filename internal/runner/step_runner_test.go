@@ -177,3 +177,35 @@ func TestStepRunnerRetriesFailedStepUntilSuccess(t *testing.T) {
 		t.Fatalf("unexpected retry result: calls=%d result=%+v", exec.calls, sr.result)
 	}
 }
+
+func TestStepRunnerInitCdpConnectFailure(t *testing.T) {
+	cfg := &config.RunnerConfig{DefaultTimeoutMs: 100, MaskInputValueInLogs: true}
+	sr := NewStepRunner(cfg, nil, nil)
+	sr.browser = &fakeBrowserController{installed: true}
+	sr.connectCDP = func(int) (cdpSession, error) {
+		return nil, errors.New("connection refused")
+	}
+	f := testFlow(testStep("open", flow.ErrStop))
+	if err := sr.Init(f, nil, ""); err == nil || !strings.Contains(err.Error(), "cdp connect") {
+		t.Fatalf("expected cdp connect error, got %v", err)
+	}
+	if sr.started {
+		t.Fatal("started should be false after cdp failure")
+	}
+}
+
+func TestStepRunnerResultAfterFinish(t *testing.T) {
+	exec := &fakeStepExecutor{results: []Status{StatusFailed}, errors: []string{"some error"}}
+	sr := initializedStepRunner(exec, &fakeHistorySaver{}, testStep("fail", flow.ErrStop))
+	_, finished, _ := sr.Next()
+	if !finished {
+		t.Fatal("expected finished")
+	}
+	res := sr.Result()
+	if res == nil {
+		t.Fatal("expected non-nil result after finish")
+	}
+	if res.Status != StatusFailed || res.FailedCount != 1 {
+		t.Fatalf("unexpected result status: %+v", res)
+	}
+}

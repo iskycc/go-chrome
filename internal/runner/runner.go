@@ -51,6 +51,13 @@ type Runner struct {
 
 // NewRunner creates a new runner.
 func NewRunner(cfg *config.RunnerConfig, bm *browser.Manager, history HistorySaver) *Runner {
+	if cfg == nil {
+		cfg = &config.RunnerConfig{
+			DefaultTimeoutMs:     10000,
+			DefaultWaitAfterMs:   500,
+			MaskInputValueInLogs: true,
+		}
+	}
 	var controller browserController
 	if bm != nil {
 		controller = bm
@@ -145,7 +152,7 @@ func (r *Runner) RunFlow(f *flow.Flow, opts RunOptions) *RunResult {
 		r.cdp = nil
 	}
 
-	runID := result.StartedAt.Format("20060102-150405.000")
+	runID := result.StartedAt.Format("20060102-150405") + "-" + uuid.New().String()[:8]
 	port, err := r.browser.StartReplay(runID)
 	if err != nil {
 		result.Status = StatusFailed
@@ -167,7 +174,11 @@ func (r *Runner) RunFlow(f *flow.Flow, opts RunOptions) *RunResult {
 		eng = template.NewEngine()
 	}
 	snapDir := filepath.Join("data", "run-history", f.ID, runID)
-	os.MkdirAll(snapDir, 0755)
+	if err := os.MkdirAll(snapDir, 0755); err != nil {
+		result.Status = StatusFailed
+		r.emit(Event{Type: EventLog, LogMessage: "Create snapshot dir failed: " + err.Error()})
+		return result
+	}
 	actExec := r.newActionExecutor(r.cdp.Context(), snapDir, r.cfg.MaskInputValueInLogs)
 
 	for i := opts.StartStep; i < len(f.Steps); i++ {

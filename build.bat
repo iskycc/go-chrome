@@ -3,6 +3,10 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 echo Building go-chrome for Windows...
 
+set "TOOLS_DIR=%~dp0.tools"
+set "MINGW_BIN=%TOOLS_DIR%\mingw64\bin"
+if exist "%MINGW_BIN%\gcc.exe" set "PATH=%MINGW_BIN%;%PATH%"
+
 set "GO_VERSION=1.26.0"
 set "GO_ARCHIVE=go%GO_VERSION%.windows-amd64.zip"
 set "GO_DOWNLOAD_URL=https://golang.google.cn/dl/%GO_ARCHIVE%"
