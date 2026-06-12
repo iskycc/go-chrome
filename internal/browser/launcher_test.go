@@ -20,6 +20,7 @@ func TestBuildLaunchArgsIncludesReplayRequirements(t *testing.T) {
 	assertContains(t, args, "--allow-insecure-localhost")
 	assertContains(t, args, "--remote-debugging-port=0")
 	assertContains(t, args, "--user-data-dir="+userDataDir)
+	assertContains(t, args, "about:blank")
 }
 
 func TestBuildLaunchArgsUsesConfiguredPort(t *testing.T) {

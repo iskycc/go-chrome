@@ -27,10 +27,11 @@
 | 13 | `cdp.go` `err` 变量作用域错误 | `cdpErr` 在 if 内声明但循环外使用 | 引入 `lastErr` 变量 |
 | 14 | CDP 连接重试过短 | 单次失败就放弃 | 改为 8 次重试，递增延迟（1s, 2s, 3s, ..., 7s） |
 | 15 | `-32000` 错误也走完整重试浪费时间 | 不区分可恢复错误 | 检测到 `-32000`（no browser open）立即快速失败 |
+| 16 | Chrome 149 下 `Target.createTarget` 失败导致 CDP 连接阻塞 | `chromedp.NewRemoteAllocator` 的远程上下文默认会创建新 tab，触发环境中失败的 `Target.createTarget` 路径 | 启动参数追加 `about:blank` 保证存在 page target；`browser.Connect()` 先通过 `/json/list` 选择已有 page，并用 `chromedp.WithTargetID` 绑定，避免默认创建新 tab；无 page 时才用 HTTP `/json/new` 兜底 |
 
-## 未解决 / 环境相关问题
+## 环境相关 / 待回归验证问题
 
-### 1. Chrome 149 在 Windows 上 `Target.createTarget` 失败（**核心阻塞**）
+### 1. Chrome 149 在 Windows 上 `Target.createTarget` 失败（已做代码规避，待目标环境回归）
 
 **症状**：
 ```
@@ -62,8 +63,10 @@ cdp connect failed: Failed to open new tab - no browser is open (-32000)
 - 固定端口（62000-62010）
 
 **当前处理**：
-- 6 个 Chrome E2E 测试自动 SKIP，不再阻塞测试套件
-- 跳过信息清楚说明这是 Chrome 149 在该 Windows 环境下的兼容性问题
+- `browser.Connect()` 不再依赖 chromedp 默认新建 tab，而是优先绑定 Chrome 启动时已有的 `about:blank` page target
+- Chrome 启动参数追加本地 `about:blank`，避免启动后没有可绑定的 page target
+- 保留无 page target 时的 HTTP `/json/new?about:blank` 兜底
+- 如果目标 Windows 环境仍然返回 `-32000`，再按下面的环境方案处理
 - 13 个 Runner 单元测试 + 14 个 Validation 子测试 + 12 个 ResolveInput/Wait/MissingEnv 测试 + 18 个 DB 集成测试 = **50+ 测试全部通过**
 
 **可能的解决方案**（按推荐顺序）：
@@ -131,7 +134,15 @@ SKIP  TestIntegration_CDPConnectionRoundTrip
 
 ## 下一步建议
 
-1. **优先处理 Chrome 版本问题**：手动下载 Chrome 148 替换 `./chrome/chrome-win64/chrome.exe`，让 6 个 E2E 测试通过
-2. **回归验证**：替换后跑 `go test -tags=integration ./internal/runner/`，预期 6 个 SKIP 变 PASS
+1. **优先回归 Chrome 149**：在 Windows 目标环境跑 `go test -tags=integration ./internal/runner/`，确认新的 target 绑定逻辑是否让 6 个 E2E 测试通过
+2. **如仍失败再处理 Chrome 版本问题**：手动下载 Chrome 148 替换 `./chrome/chrome-win64/chrome.exe`，让 6 个 E2E 测试通过
 3. **完成 `official_fixed_version` 功能**：AGENTS.md 中提到这是预留配置，尚未实现
 4. **GUI 回归测试**：手动启动 `go-chrome.exe`，验证弹窗 UX 改进（新建/导入流程、添加步骤）
+
+## 留给下一个 Agent
+
+- 本轮针对 Chrome 149 的 `Target.createTarget` / `-32000` 问题做的是**代码规避**，不是环境根治：`internal/browser/launcher.go` 启动时追加 `about:blank`，`internal/browser/cdp.go` 连接时优先从 `/json/list` 找已有 `page` target 并用 `chromedp.WithTargetID` 绑定，避免 chromedp 默认新建 tab。
+- 已新增 `internal/browser/cdp_test.go`，并更新 `internal/browser/launcher_test.go` 固定上述行为。当前 Linux 环境已通过 `go test ./internal/browser`、`go test ./...`、`go test -tags=integration ./internal/runner`。
+- 下一个 Agent 的第一优先级是在问题描述里的 Windows 10/11 + Chrome for Testing 149 环境中回归：先启动 `cmd/test-server`，再跑 `go test -tags=integration ./internal/runner`。如果 6 个 E2E 从 SKIP 变 PASS，说明规避有效。
+- 如果 Windows 目标环境仍然报 `Failed to open new tab - no browser is open (-32000)`，不要只继续加重试。先用浏览器调试端口确认 `/json/list` 是否有 `type:"page"`，再看 `/json/new?about:blank` 是否也失败；如果两者都失败，按上面的环境方案处理 Chrome 版本、headless shell 或 NTFS 权限。
+- 注意不要提交 `data/`、`logs/`、`chrome/`、`go-chrome` 二进制、`stdout*.txt`、`stderr*.txt` 等运行产物。远程刚拉下来的 `stdout*.txt` / `stderr*.txt` 是历史产物，后续如清理请单独确认。

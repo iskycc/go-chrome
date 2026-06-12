@@ -82,6 +82,7 @@ func buildLaunchArgs(opts LaunchOptions) []string {
 		args = append(args, "--user-data-dir="+opts.UserDataDir)
 	}
 	args = append(args, opts.AdditionalArgs...)
+	args = append(args, "about:blank")
 	return args
 }
 
