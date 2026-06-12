@@ -6,22 +6,31 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-//go:embed icon.png
-//go:embed fonts/CascadiaCode-SemiLight.ttf
-var assetsFS embed.FS
+//go:embed icon.png fonts/CascadiaNextSC.wght.ttf fonts/CascadiaCode-SemiLight.ttf
+var assetFS embed.FS
 
 // Icon returns the application icon resource.
 func Icon() fyne.Resource {
-	data, err := assetsFS.ReadFile("icon.png")
+	data, err := assetFS.ReadFile("icon.png")
 	if err != nil {
 		return nil
 	}
 	return fyne.NewStaticResource("icon.png", data)
 }
 
-// CascadiaCodeSemiLight returns the embedded Cascadia Code SemiLight font resource.
-func CascadiaCodeSemiLight() fyne.Resource {
-	data, err := assetsFS.ReadFile("fonts/CascadiaCode-SemiLight.ttf")
+// AppUIFont returns the embedded Cascadia Next SC font resource for the UI.
+func AppUIFont() fyne.Resource {
+	data, err := assetFS.ReadFile("fonts/CascadiaNextSC.wght.ttf")
+	if err != nil {
+		return nil
+	}
+	return fyne.NewStaticResource("CascadiaNextSC.wght.ttf", data)
+}
+
+// CodeFont returns the embedded Cascadia Code SemiLight font resource for
+// code-specific scenes.
+func CodeFont() fyne.Resource {
+	data, err := assetFS.ReadFile("fonts/CascadiaCode-SemiLight.ttf")
 	if err != nil {
 		return nil
 	}

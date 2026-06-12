@@ -29,7 +29,6 @@ type runPanel struct {
 	summary      *widget.Label
 	currentStep  *widget.Label
 	artifactBox  *fyne.Container
-	closeChBtn   *widget.Button
 	artifactDir  string
 }
 
@@ -58,16 +57,9 @@ func newRunPanel(app *App) *runPanel {
 		p.openArtifactDir()
 	})
 
-	p.closeChBtn = widget.NewButtonWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() {
-		p.app.closeManagedChrome()
-	})
-	p.closeChBtn.Disable()
-	p.closeChBtn.Importance = widget.MediumImportance
-
 	var moreBtn *widget.Button
 	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
 		menu := fyne.NewMenu("运行操作",
-			fyne.NewMenuItemWithIcon("关闭本程序启动的 Chrome", theme.CancelIcon(), func() { p.app.closeManagedChrome() }),
 			fyne.NewMenuItemWithIcon("浏览器下载配置", theme.ComputerIcon(), func() {
 				if p.app.moduleTabs != nil {
 					p.app.moduleTabs.SelectIndex(4)
@@ -90,11 +82,9 @@ func newRunPanel(app *App) *runPanel {
 		p.artifactBox,
 	)
 
-	bottomBar := container.NewHBox(p.closeChBtn)
-
 	p.widget = container.NewBorder(
 		topBar,
-		bottomBar,
+		nil,
 		nil,
 		rightPanel,
 		p.logScroll,
@@ -197,16 +187,8 @@ func (p *runPanel) setRunning(running bool) {
 }
 
 func (p *runPanel) setChromeManaged(managed bool) {
-	fyne.Do(func() {
-		if p.closeChBtn == nil {
-			return
-		}
-		if managed {
-			p.closeChBtn.Enable()
-		} else {
-			p.closeChBtn.Disable()
-		}
-	})
+	// Managed Chrome state is now handled by the global toolbar; kept for caller compatibility.
+	_ = managed
 }
 
 func (p *runPanel) refreshEnvironments() {

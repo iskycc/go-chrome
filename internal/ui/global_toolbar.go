@@ -11,6 +11,13 @@ import (
 	"go-chrome/internal/flow"
 )
 
+// flowSelectOption pairs a display label with the flow ID it represents.
+// Labels are disambiguated when multiple flows share the same name.
+type flowSelectOption struct {
+	Label string
+	ID    string
+}
+
 // globalToolbar holds the always-visible flow/environment/run controls.
 type globalToolbar struct {
 	app            *App
@@ -19,24 +26,34 @@ type globalToolbar struct {
 	envSelect      *widget.Select
 	saveBtn        *widget.Button
 	startChromeBtn *widget.Button
+	stopChromeBtn  *widget.Button
 	runBtn         *widget.Button
 	stepBtn        *widget.Button
 	stopBtn        *widget.Button
 	progress       *widget.ProgressBar
 	progressText   *widget.Label
 
-	flowByName map[string]*flow.Flow
+	flowOptions []flowSelectOption
+	flowByID    map[string]*flow.Flow
 }
 
 func newGlobalToolbar(app *App) *globalToolbar {
-	t := &globalToolbar{app: app, flowByName: map[string]*flow.Flow{}}
+	t := &globalToolbar{
+		app:      app,
+		flowByID: map[string]*flow.Flow{},
+	}
 
-	t.flowSelect = widget.NewSelect([]string{}, func(name string) {
-		f := t.flowByName[name]
-		if f == nil {
-			return
+	t.flowSelect = widget.NewSelect([]string{}, func(label string) {
+		for _, opt := range t.flowOptions {
+			if opt.Label == label {
+				f := t.flowByID[opt.ID]
+				if f == nil {
+					return
+				}
+				app.onFlowSelected(f)
+				return
+			}
 		}
-		app.onFlowSelected(f)
 	})
 	t.flowSelect.PlaceHolder = "选择流程"
 
@@ -65,9 +82,15 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	})
 	t.saveBtn.Importance = widget.MediumImportance
 
-	t.startChromeBtn = widget.NewButtonWithIcon("启动浏览器", theme.ComputerIcon(), func() {
+	t.startChromeBtn = widget.NewButtonWithIcon("启动 Chrome", theme.ComputerIcon(), func() {
 		go app.startBrowser()
 	})
+
+	t.stopChromeBtn = widget.NewButtonWithIcon("关闭托管", theme.CancelIcon(), func() {
+		go app.closeManagedChrome()
+	})
+	t.stopChromeBtn.Importance = widget.DangerImportance
+	t.stopChromeBtn.Disable()
 
 	t.runBtn = widget.NewButtonWithIcon("运行", theme.MediaPlayIcon(), func() {
 		go app.runCurrentFlow()
@@ -78,57 +101,92 @@ func newGlobalToolbar(app *App) *globalToolbar {
 		go app.onStepButton()
 	})
 
-	t.stopBtn = widget.NewButtonWithIcon("停止", theme.MediaStopIcon(), func() {
+	t.stopBtn = widget.NewButtonWithIcon("停止流程", theme.MediaStopIcon(), func() {
 		app.stopCurrentRun()
 	})
-	t.stopBtn.Hide()
+	t.stopBtn.Disable()
 	t.stopBtn.Importance = widget.DangerImportance
 
 	t.progress = widget.NewProgressBar()
 	t.progress.Min = 0
 	t.progress.Max = 1
-	t.progressText = widget.NewLabel("就绪")
+	t.progressText = newTruncatingLabel("就绪")
 
 	progressBox := container.NewBorder(nil, nil, t.progressText, nil, t.progress)
 
-	left := container.NewHBox(
+	flowBox := container.NewHBox(
 		widget.NewLabelWithStyle("流程", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		t.flowSelect,
+		container.NewGridWrap(fyne.NewSize(220, t.flowSelect.MinSize().Height), t.flowSelect),
 		t.saveBtn,
 	)
-	center := container.NewHBox(
+	browserBox := container.NewHBox(
+		widget.NewLabelWithStyle("浏览器", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		t.startChromeBtn,
+		t.stopChromeBtn,
+	)
+	runBox := container.NewHBox(
+		widget.NewLabelWithStyle("执行", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		t.runBtn,
 		t.stepBtn,
 		t.stopBtn,
 	)
-	right := container.NewHBox(
+	envBox := container.NewHBox(
 		widget.NewLabelWithStyle("环境", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		t.envSelect,
 	)
 
-	t.widget = container.NewBorder(nil, progressBox, left, right, center)
+	top := container.NewHBox(
+		flowBox,
+		widget.NewSeparator(),
+		browserBox,
+		widget.NewSeparator(),
+		runBox,
+		widget.NewSeparator(),
+		envBox,
+	)
+
+	t.widget = container.NewBorder(nil, progressBox, nil, nil, top)
 	return t
 }
 
 // refreshFlows rebuilds the flow dropdown from the current flow library.
 func (t *globalToolbar) refreshFlows(flows []*flow.Flow) {
-	t.flowByName = make(map[string]*flow.Flow, len(flows))
-	names := make([]string, 0, len(flows))
+	t.flowByID = make(map[string]*flow.Flow, len(flows))
+	nameCount := make(map[string]int, len(flows))
+	for _, f := range flows {
+		nameCount[f.Name]++
+	}
+
+	t.flowOptions = make([]flowSelectOption, 0, len(flows))
+	labels := make([]string, 0, len(flows))
 	var selected string
 	for _, f := range flows {
-		names = append(names, f.Name)
-		t.flowByName[f.Name] = f
+		t.flowByID[f.ID] = f
+
+		label := f.Name
+		if nameCount[f.Name] > 1 {
+			shortID := f.ID
+			if len(shortID) > 6 {
+				shortID = shortID[:6]
+			}
+			label = fmt.Sprintf("%s · %s", f.Name, shortID)
+		}
+
+		opt := flowSelectOption{Label: label, ID: f.ID}
+		t.flowOptions = append(t.flowOptions, opt)
+		labels = append(labels, label)
+
 		if t.app.currentFlow != nil && f.ID == t.app.currentFlow.ID {
-			selected = f.Name
+			selected = label
 		}
 	}
+
 	fyne.Do(func() {
-		t.flowSelect.Options = names
+		t.flowSelect.Options = labels
 		if selected != "" {
 			t.flowSelect.SetSelected(selected)
-		} else if len(names) > 0 {
-			t.flowSelect.SetSelected(names[0])
+		} else if len(labels) > 0 {
+			t.flowSelect.SetSelected(labels[0])
 		} else {
 			t.flowSelect.ClearSelected()
 		}
@@ -176,17 +234,17 @@ func (t *globalToolbar) setProgress(current, total int, stepName string) {
 	})
 }
 
-// setRunning updates button visibility when a run starts/stops.
+// setRunning updates button availability when a run starts/stops.
 func (t *globalToolbar) setRunning(running bool) {
 	fyne.Do(func() {
 		if running {
 			t.runBtn.Disable()
 			t.stepBtn.Disable()
-			t.stopBtn.Show()
+			t.stopBtn.Enable()
 		} else {
 			t.runBtn.Enable()
 			t.stepBtn.Enable()
-			t.stopBtn.Hide()
+			t.stopBtn.Disable()
 			t.stepBtn.SetText("单步执行")
 		}
 	})
@@ -199,13 +257,15 @@ func (t *globalToolbar) setStepButtonText(label string) {
 	})
 }
 
-// setChromeManaged updates the start-browser button availability.
+// setChromeManaged updates the browser button availability.
 func (t *globalToolbar) setChromeManaged(managed bool) {
 	fyne.Do(func() {
 		if managed {
 			t.startChromeBtn.Disable()
+			t.stopChromeBtn.Enable()
 		} else {
 			t.startChromeBtn.Enable()
+			t.stopChromeBtn.Disable()
 		}
 	})
 }

@@ -20,7 +20,7 @@ type envPanel struct {
 	app          *App
 	widget       fyne.CanvasObject
 	list         *widget.List
-	varList      *widget.List
+	varTable     *widget.Table
 	search       *widget.Entry
 	currentEnvID string
 	currentVarID string
@@ -64,41 +64,76 @@ func newEnvPanel(app *App) *envPanel {
 		}
 	}
 
-	p.varList = widget.NewList(
-		func() int { return len(p.currentVars) },
-		func() fyne.CanvasObject {
-			return container.NewGridWithColumns(4,
-				widget.NewLabel("KEY"),
-				widget.NewLabel("VALUE"),
-				widget.NewLabel("敏感"),
-				widget.NewLabel("说明"),
-			)
-		},
-		func(id widget.ListItemID, item fyne.CanvasObject) {
-			if id < 0 || id >= len(p.currentVars) {
+	p.varTable = widget.NewTableWithHeaders(
+		func() (int, int) { return len(p.currentVars), 5 },
+		func() fyne.CanvasObject { return newTruncatingLabel("cell") },
+		func(id widget.TableCellID, cell fyne.CanvasObject) {
+			label := cell.(*widget.Label)
+			if id.Row < 0 || id.Row >= len(p.currentVars) {
+				label.SetText("")
 				return
 			}
-			v := p.currentVars[id]
-			grid := item.(*fyne.Container)
-			keyLabel := grid.Objects[0].(*widget.Label)
-			valLabel := grid.Objects[1].(*widget.Label)
-			secretLabel := grid.Objects[2].(*widget.Label)
-			descLabel := grid.Objects[3].(*widget.Label)
-			keyLabel.SetText(v.Key)
-			if v.IsSecret {
-				valLabel.SetText("******")
-				secretLabel.SetText("是")
-			} else {
-				valLabel.SetText(v.Value)
-				secretLabel.SetText("")
+			v := p.currentVars[id.Row]
+			switch id.Col {
+			case 0:
+				label.SetText(v.Key)
+			case 1:
+				if v.IsSecret {
+					label.SetText("******")
+				} else {
+					label.SetText(v.Value)
+				}
+			case 2:
+				if v.IsSecret {
+					label.SetText("是")
+				} else {
+					label.SetText("")
+				}
+			case 3:
+				label.SetText(v.Description)
+			case 4:
+				label.SetText("")
 			}
-			descLabel.SetText(v.Description)
 		},
 	)
-	p.varList.OnSelected = func(id widget.ListItemID) {
-		if id >= 0 && id < len(p.currentVars) {
-			p.currentVarID = p.currentVars[id].ID
+	p.varTable.ShowHeaderColumn = false
+	p.varTable.CreateHeader = func() fyne.CanvasObject {
+		l := widget.NewLabel("HEADER")
+		l.TextStyle = fyne.TextStyle{Bold: true}
+		return l
+	}
+	p.varTable.UpdateHeader = func(id widget.TableCellID, cell fyne.CanvasObject) {
+		label := cell.(*widget.Label)
+		if id.Row == -1 {
+			switch id.Col {
+			case 0:
+				label.SetText("KEY")
+			case 1:
+				label.SetText("VALUE")
+			case 2:
+				label.SetText("敏感")
+			case 3:
+				label.SetText("说明")
+			case 4:
+				label.SetText("操作")
+			default:
+				label.SetText("")
+			}
+		} else {
+			label.SetText("")
 		}
+	}
+	p.varTable.SetColumnWidth(0, 120)
+	p.varTable.SetColumnWidth(1, 160)
+	p.varTable.SetColumnWidth(2, 50)
+	p.varTable.SetColumnWidth(3, 160)
+	p.varTable.SetColumnWidth(4, 50)
+	p.varTable.OnSelected = func(id widget.TableCellID) {
+		if id.Row < 0 || id.Row >= len(p.currentVars) {
+			return
+		}
+		p.currentVarID = p.currentVars[id.Row].ID
+		p.showEditVarDialog()
 	}
 
 	newEnvBtn := widget.NewButtonWithIcon("新建环境", theme.ContentAddIcon(), func() {
@@ -120,9 +155,6 @@ func newEnvPanel(app *App) *envPanel {
 			copyItem,
 			deleteItem,
 			activeItem,
-			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItemWithIcon("导入配置", theme.DownloadIcon(), func() { p.showImportEnvDialog() }),
-			fyne.NewMenuItemWithIcon("导出配置", theme.UploadIcon(), func() { p.showExportEnvDialog() }),
 		)
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, envMoreBtn.Size().Height), envMoreBtn)
 	})
@@ -141,6 +173,13 @@ func newEnvPanel(app *App) *envPanel {
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, varMoreBtn.Size().Height), varMoreBtn)
 	})
 
+	importBtn := widget.NewButtonWithIcon("导入配置", theme.DownloadIcon(), func() {
+		p.showImportEnvDialog()
+	})
+	exportBtn := widget.NewButtonWithIcon("导出配置", theme.UploadIcon(), func() {
+		p.showExportEnvDialog()
+	})
+
 	leftTop := container.NewVBox(
 		container.NewHBox(
 			widget.NewLabelWithStyle("环境列表", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -157,16 +196,12 @@ func newEnvPanel(app *App) *envPanel {
 			widget.NewLabelWithStyle("环境变量", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			layout.NewSpacer(),
 			newVarBtn,
+			importBtn,
+			exportBtn,
 			varMoreBtn,
 		),
-		container.NewGridWithColumns(4,
-			widget.NewLabelWithStyle("KEY", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			widget.NewLabelWithStyle("VALUE", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			widget.NewLabelWithStyle("敏感", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			widget.NewLabelWithStyle("说明", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		),
 	)
-	right := container.NewBorder(rightTop, nil, nil, nil, container.NewScroll(p.varList))
+	right := container.NewBorder(rightTop, nil, nil, nil, container.NewScroll(p.varTable))
 
 	split := container.NewHSplit(left, right)
 	split.SetOffset(0.4)
@@ -203,8 +238,9 @@ func (p *envPanel) refreshVars() {
 		p.currentVars, _ = p.app.envRepo.ListVars(p.currentEnvID)
 	}
 	p.currentVarID = ""
-	if p.varList != nil {
-		p.varList.Refresh()
+	if p.varTable != nil {
+		p.varTable.Refresh()
+		p.varTable.UnselectAll()
 	}
 }
 
@@ -388,6 +424,9 @@ func (p *envPanel) showSetActiveEnvDialog() {
 func (p *envPanel) showImportEnvDialog() {
 	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil || reader == nil {
+			if err != nil {
+				dialog.ShowError(err, p.app.mainWin)
+			}
 			return
 		}
 		defer reader.Close()
@@ -404,19 +443,61 @@ func (p *envPanel) showImportEnvDialog() {
 			}
 		}
 		p.refresh()
+		dialog.ShowInformation("导入成功", "环境配置已导入。", p.app.mainWin)
 	}, p.app.mainWin)
 }
 
 func (p *envPanel) showExportEnvDialog() {
-	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
-		if err != nil || writer == nil {
-			return
+	p.confirmExportIfNeeded(func() {
+		dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+			if err != nil || writer == nil {
+				if err != nil {
+					dialog.ShowError(err, p.app.mainWin)
+				}
+				return
+			}
+			defer writer.Close()
+			if err := p.app.envRepo.Export(writer.URI().Path()); err != nil {
+				dialog.ShowError(err, p.app.mainWin)
+			}
+		}, p.app.mainWin)
+	})
+}
+
+func (p *envPanel) confirmExportIfNeeded(cont func()) {
+	hasSecret := false
+	if p.app.envRepo != nil {
+		envs, _ := p.app.envRepo.List()
+		for _, env := range envs {
+			vars, _ := p.app.envRepo.ListVars(env.ID)
+			for _, v := range vars {
+				if v.IsSecret {
+					hasSecret = true
+					break
+				}
+			}
+			if hasSecret {
+				break
+			}
 		}
-		defer writer.Close()
-		if err := p.app.envRepo.Export(writer.URI().Path()); err != nil {
-			dialog.ShowError(err, p.app.mainWin)
+	}
+	if !hasSecret {
+		cont()
+		return
+	}
+	dialog.ShowConfirm("确认导出", "导出文件包含敏感变量，将以明文形式保存，是否继续？", func(ok bool) {
+		if ok {
+			cont()
 		}
 	}, p.app.mainWin)
+}
+
+func forceUppercaseEntry(e *widget.Entry) {
+	e.OnChanged = func(s string) {
+		if up := strings.ToUpper(s); s != up {
+			e.SetText(up)
+		}
+	}
 }
 
 func (p *envPanel) showNewVarDialog() {
@@ -426,12 +507,7 @@ func (p *envPanel) showNewVarDialog() {
 	}
 	keyEntry := widget.NewEntry()
 	keyEntry.SetPlaceHolder("变量名")
-	keyEntry.OnChanged = func(s string) {
-		upper := strings.ToUpper(s)
-		if s != upper {
-			keyEntry.SetText(upper)
-		}
-	}
+	forceUppercaseEntry(keyEntry)
 	valEntry := widget.NewEntry()
 	valEntry.SetPlaceHolder("变量值")
 	secretCheck := widget.NewCheck("敏感变量", nil)
@@ -467,12 +543,7 @@ func (p *envPanel) showEditVarDialog() {
 	}
 	keyEntry := widget.NewEntry()
 	keyEntry.SetText(v.Key)
-	keyEntry.OnChanged = func(s string) {
-		upper := strings.ToUpper(s)
-		if s != upper {
-			keyEntry.SetText(upper)
-		}
-	}
+	forceUppercaseEntry(keyEntry)
 	valEntry := widget.NewEntry()
 	valEntry.SetText(v.Value)
 	descEntry := widget.NewEntry()

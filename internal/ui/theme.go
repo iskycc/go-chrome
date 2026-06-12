@@ -42,7 +42,7 @@ func (a *appTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) co
 }
 
 func (a *appTheme) Font(style fyne.TextStyle) fyne.Resource {
-	if f := assets.CascadiaCodeSemiLight(); f != nil {
+	if f := assets.AppUIFont(); f != nil {
 		return f
 	}
 	return theme.DefaultTheme().Font(style)
