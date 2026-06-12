@@ -29,19 +29,20 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 	p.list = widget.NewList(
 		func() int { return len(p.flows) },
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Flow Name")
+			// Truncating label so long flow names + tags get
+			// visually clipped with "…" instead of overflowing
+			// the left panel's width.
+			return newTruncatingLabel("Flow Name")
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			if id < 0 || id >= len(p.flows) {
 				return
 			}
 			f := p.flows[id]
-			name := truncate(f.Name, 24)
+			name := f.Name
 			tags := ""
 			if len(f.Tags) > 0 {
-				ts := strings.Join(f.Tags, ", ")
-				ts = truncate(ts, 20)
-				tags = " [" + ts + "]"
+				tags = " [" + strings.Join(f.Tags, ", ") + "]"
 			}
 			item.(*widget.Label).SetText(name + tags)
 		},

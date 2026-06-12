@@ -43,7 +43,7 @@ func newRunPanel(app *App) *runPanel {
 	p.logScroll = container.NewScroll(p.logBox)
 
 	p.summary = widget.NewLabel("成功：0  失败：0  跳过：0  总耗时：0.0s")
-	p.currentStep = widget.NewLabel("")
+	p.currentStep = newTruncatingLabel("")
 	p.artifactBox = container.NewHBox()
 
 	runBtn := widget.NewButtonWithIcon("运行整个流程", theme.MediaPlayIcon(), func() {
@@ -173,10 +173,10 @@ func (p *runPanel) setArtifacts(screenshot, htmlSnap string) {
 	fyne.Do(func() {
 		p.artifactBox.Objects = nil
 		if screenshot != "" {
-			p.artifactBox.Objects = append(p.artifactBox.Objects, widget.NewLabel("截图："+screenshot))
+			p.artifactBox.Objects = append(p.artifactBox.Objects, newTruncatingLabel("截图："+screenshot))
 		}
 		if htmlSnap != "" {
-			p.artifactBox.Objects = append(p.artifactBox.Objects, widget.NewLabel("HTML："+htmlSnap))
+			p.artifactBox.Objects = append(p.artifactBox.Objects, newTruncatingLabel("HTML："+htmlSnap))
 		}
 		p.artifactBox.Refresh()
 	})

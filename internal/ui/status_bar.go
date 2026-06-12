@@ -47,7 +47,7 @@ type statusItem struct {
 func newStatusItem(field, defaultValue string, defaultColor color.Color) *statusItem {
 	si := &statusItem{
 		field:  widget.NewLabelWithStyle(field, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		value:  widget.NewLabel(defaultValue),
+		value:  newTruncatingLabel(defaultValue),
 		dot:    canvas.NewCircle(defaultColor),
 		dotClr: defaultColor,
 	}

@@ -39,7 +39,8 @@
 | 25 | **单步执行时停止按钮无效** | `Runner.Stop` 只能停止完整运行；`StepRunner` 没有 `Stop()` | `StepRunner` 新增 `Stop()`：设 `stopped` 标志 + 关闭 CDP 取消 action executor context；`App.stopCurrentRun()` 区分处理 Runner 和 StepRunner；停止后按钮恢复"单步执行" |
 | 26 | **Chrome 状态显示不准** | `Status()` 只看 `cfg.UserDataDir` 根目录的 DevToolsActivePort，重放 Chrome 状态永远不对 | `Manager` 新增 `activeUserDataDir` 字段，`Start`/`StartReplay` 设置，`Stop` 清空；`Status()` 优先读 active dir；新增单元测试 `TestManagerActiveUserDataDirTrackedAndCleared` |
 | 27 | **退出时不关闭托管 Chrome** | `SetOnClosed` 只保存窗口大小和 recent flows | `SetOnClosed` 增加：先停 runner/stepRunner；如 `cfg.App.CloseManagedChromeOnExit=true` 则 `browserMgr.Stop()`；只杀 Manager 跟踪的 pid，不影响用户 Chrome |
-| 28 | **步骤页面字数超过显示框就乱码**（user-reported） | `truncate` 用 `s[:max-3]` 按**字节**切片；中文 UTF-8 一个字符 3 字节，切到字符中间就产生无效 UTF-8 → Fyne 显示成"豆腐块" | 抽出 `internal/textutil` 包，新 `Truncate` 按 rune 计数，永远返回合法 UTF-8；`flow_library.go` 同样的 byte 截断也修复；步骤表格目标/输入列截断从 20 字符提到 24 字符匹配列宽；新增 11 个单元测试 + 属性测试 |
+| 28 | **步骤页面字数超过显示框就乱码**（user-reported） | `truncate` 用 `s[:max-3]` 按**字节**切片；中文 UTF-8 一个字符 3 字节，切到字符中间就产生无效 UTF-8 → Fyne 显示成"豆腐块" | 抽出 `internal/textutil` 包，新 `Truncate` 按 rune 计数，永远返回合法 UTF-8；`flow_library.go` 同样的 byte 截断也修复；新增 11 个单元测试 + 属性测试 |
+| 29 | **截断后还是超出列框宽度**（user-reported） | Fyne 默认 `Label` 不会自动 ellipsis，超出列宽的字符会画到相邻列或被窗口裁掉；手算的字符上限（14/24）依赖字体/DPI 不准 | 抽出 `newTruncatingLabel()` helper（设 `Label.Truncation = fyne.TextTruncateEllipsis`，Fyne 2.4+）；`step_table.go` 表头模板、`flow_library.go` 列表模板、`run_panel.go` 的 `currentStep`/artifact 路径、`status_bar.go` 状态值都换成 truncating label；删掉手算的 `truncate(s, N)` 调用，让 Fyne 按实际宽度切 |
 
 ## 待优化 / 环境相关
 

@@ -59,7 +59,10 @@ func (p *stepTablePanel) initTable() {
 			return len(p.stepsData), cols
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("cell")
+			// Truncating label so long step names, XPaths, and
+			// input text get visually clipped with "…" instead
+			// of drawing past the column width.
+			return newTruncatingLabel("cell")
 		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			label := cell.(*widget.Label)
@@ -84,16 +87,16 @@ func (p *stepTablePanel) initTable() {
 					label.SetText("")
 				}
 			case 3:
-				label.SetText(truncate(s.Name, 14))
+				label.SetText(s.Name)
 			case 4:
 				label.SetText(stepTypeLabel(s.Type))
 			case 5:
-				label.SetText(truncate(s.Target.Value, 24))
+				label.SetText(s.Target.Value)
 			case 6:
 				if s.Input.MaskInLogs {
 					label.SetText("***")
 				} else {
-					label.SetText(truncate(s.Input.Text, 24))
+					label.SetText(s.Input.Text)
 				}
 			case 7:
 				label.SetText(fmt.Sprintf("%dms", s.WaitAfterMs))
