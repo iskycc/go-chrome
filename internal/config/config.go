@@ -171,10 +171,23 @@ func (c *Config) ResolvePaths(baseDir string) {
 	if c == nil {
 		return
 	}
-	if c.Chrome.InstallDir != "" && !filepath.IsAbs(c.Chrome.InstallDir) {
+	if c.Chrome.InstallDir != "" && !isAbsPath(c.Chrome.InstallDir) {
 		c.Chrome.InstallDir = filepath.Join(baseDir, c.Chrome.InstallDir)
 	}
-	if c.Chrome.UserDataDir != "" && !filepath.IsAbs(c.Chrome.UserDataDir) {
+	if c.Chrome.UserDataDir != "" && !isAbsPath(c.Chrome.UserDataDir) {
 		c.Chrome.UserDataDir = filepath.Join(baseDir, c.Chrome.UserDataDir)
 	}
+}
+
+// isAbsPath reports whether p is an absolute path on the current platform,
+// and also recognizes Windows-style absolute paths (e.g. C:\foo) when running
+// on Unix. This keeps configuration authored on Windows valid everywhere.
+func isAbsPath(p string) bool {
+	if filepath.IsAbs(p) {
+		return true
+	}
+	if len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') {
+		return true
+	}
+	return false
 }
