@@ -33,6 +33,10 @@
 coverage.out
 coverage.html
 
+# Captured process output
+stdout*.txt
+stderr*.txt
+
 # OS/editor files
 .DS_Store
 Thumbs.db
