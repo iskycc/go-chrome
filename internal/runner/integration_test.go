@@ -53,12 +53,6 @@ func launchChrome(t *testing.T, runID string) *e2eChrome {
 	cdp, err := browser.Connect(port)
 	if err != nil {
 		mgr.Stop()
-		if strings.Contains(err.Error(), "Failed to open new tab") {
-			t.Skipf("Chrome CDP cannot create a new tab in this environment (-32000). "+
-				"This is a Chrome for Testing compatibility issue with the current Windows "+
-				"sandbox/network service configuration, not a code defect. "+
-				"Try running Chrome with --headless=new or downgrading to Chrome 148. Error: %v", err)
-		}
 		t.Fatalf("browser.Connect: %v", err)
 	}
 

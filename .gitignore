@@ -17,6 +17,8 @@
 /chrome.bak/
 /chrome.tmp/
 /chrome.old/
+**/data/
+**/logs/
 
 # Download/cache artifacts
 *.zip
