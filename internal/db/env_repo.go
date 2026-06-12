@@ -327,7 +327,9 @@ func (r *EnvRepo) Export(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// Import reads environments and variables from a JSON file.
+// Import reads environments and variables from a JSON file. Existing
+// environments are never overwritten; if a name already exists, the imported
+// environment is renamed with a suffix such as "默认环境 导入".
 func (r *EnvRepo) Import(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -337,14 +339,24 @@ func (r *EnvRepo) Import(path string) error {
 	if err := json.Unmarshal(data, &in); err != nil {
 		return err
 	}
+
+	existingNames := make(map[string]bool)
+	envs, _ := r.List()
+	for _, e := range envs {
+		existingNames[e.Name] = true
+	}
+
 	for _, entry := range in.Environments {
 		if entry.Name == "" {
 			continue
 		}
-		env, err := r.GetByName(entry.Name)
-		if err != nil {
-			env = &Environment{ID: uuid.New().String(), Name: entry.Name}
+		name := entry.Name
+		if existingNames[name] {
+			name = r.uniqueEnvName(name, existingNames)
 		}
+		existingNames[name] = true
+
+		env := &Environment{ID: uuid.New().String(), Name: name}
 		env.Description = entry.Description
 		env.IsActive = entry.IsActive
 		if err := r.Save(env); err != nil {
@@ -372,6 +384,21 @@ func (r *EnvRepo) Import(path string) error {
 		}
 	}
 	return r.CreateDefaultIfNone()
+}
+
+// uniqueEnvName returns a name that does not collide with any existing
+// environment. It appends " 导入", " 导入 2", etc.
+func (r *EnvRepo) uniqueEnvName(base string, existing map[string]bool) string {
+	candidate := base + " 导入"
+	if !existing[candidate] {
+		return candidate
+	}
+	for i := 2; ; i++ {
+		candidate = fmt.Sprintf("%s 导入 %d", base, i)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
 }
 
 // envProvider adapts EnvRepo to template engine.

@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -422,7 +423,7 @@ func (p *envPanel) showSetActiveEnvDialog() {
 }
 
 func (p *envPanel) showImportEnvDialog() {
-	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
+	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil || reader == nil {
 			if err != nil {
 				dialog.ShowError(err, p.app.mainWin)
@@ -445,11 +446,13 @@ func (p *envPanel) showImportEnvDialog() {
 		p.refresh()
 		dialog.ShowInformation("导入成功", "环境配置已导入。", p.app.mainWin)
 	}, p.app.mainWin)
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".json"}))
+	fd.Show()
 }
 
 func (p *envPanel) showExportEnvDialog() {
 	p.confirmExportIfNeeded(func() {
-		dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+		fd := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 			if err != nil || writer == nil {
 				if err != nil {
 					dialog.ShowError(err, p.app.mainWin)
@@ -461,6 +464,8 @@ func (p *envPanel) showExportEnvDialog() {
 				dialog.ShowError(err, p.app.mainWin)
 			}
 		}, p.app.mainWin)
+		fd.SetFileName("go-chrome-env-config.json")
+		fd.Show()
 	})
 }
 

@@ -6,7 +6,7 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-//go:embed icon.png fonts/CascadiaNextSC-600.ttf fonts/CascadiaCode-SemiLight.ttf
+//go:embed icon.png fonts/MapleMono-CN-Regular.ttf fonts/MapleMono-CN-Medium.ttf
 var assetFS embed.FS
 
 // Icon returns the application icon resource.
@@ -18,25 +18,30 @@ func Icon() fyne.Resource {
 	return fyne.NewStaticResource("icon.png", data)
 }
 
-// AppUIFont returns the embedded Cascadia Next SC font resource for the UI.
-// The font is pre-baked at wght=600 (SemiBold) so CJK glyphs render
-// with a clearly visible stroke weight; the source variable font's
-// default wght=200 (ExtraLight) made every Chinese character look
-// hairline. See scripts/bake-font for the patching logic.
-func AppUIFont() fyne.Resource {
-	data, err := assetFS.ReadFile("fonts/CascadiaNextSC-600.ttf")
+// AppUIFontRegular returns the embedded Maple Mono CN Regular font resource
+// for normal UI text. Maple Mono CN is a JetBrains Mono style font with full
+// CJK coverage, giving a unified Chinese/English look.
+func AppUIFontRegular() fyne.Resource {
+	data, err := assetFS.ReadFile("fonts/MapleMono-CN-Regular.ttf")
 	if err != nil {
 		return nil
 	}
-	return fyne.NewStaticResource("CascadiaNextSC-600.ttf", data)
+	return fyne.NewStaticResource("MapleMono-CN-Regular.ttf", data)
 }
 
-// CodeFont returns the embedded Cascadia Code SemiLight font resource for
-// code-specific scenes.
-func CodeFont() fyne.Resource {
-	data, err := assetFS.ReadFile("fonts/CascadiaCode-SemiLight.ttf")
+// AppUIFontMedium returns the embedded Maple Mono CN Medium font resource for
+// bold/important UI text such as tab labels, headings and primary buttons.
+func AppUIFontMedium() fyne.Resource {
+	data, err := assetFS.ReadFile("fonts/MapleMono-CN-Medium.ttf")
 	if err != nil {
 		return nil
 	}
-	return fyne.NewStaticResource("CascadiaCode-SemiLight.ttf", data)
+	return fyne.NewStaticResource("MapleMono-CN-Medium.ttf", data)
+}
+
+// CodeFont returns the embedded Maple Mono CN Regular font resource. Since the
+// UI font already covers CJK, the code font uses the same family to avoid
+// Chinese text falling back to a different typeface in logs or input fields.
+func CodeFont() fyne.Resource {
+	return AppUIFontRegular()
 }

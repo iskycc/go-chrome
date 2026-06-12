@@ -22,7 +22,7 @@ Go Chrome CDP Automation 是一个 Windows 桌面 GUI 工具，用 Go、Fyne 和
 
 ### UI 特性
 
-- 内置 Cascadia Next SC 字体，中英文统一渲染，避免 fallback 割裂；覆盖常用 CJK 字符。
+- 内置 **Maple Mono CN** 字体（JetBrains Mono 风格、含 CJK 完整字形），中英文统一渲染，避免 fallback 割裂；Regular / Medium 双字重，标题与主按钮字重更明显。字体文件由构建脚本自动下载（国内镜像），不纳入版本库。
 - 全局操作栏固定流程、浏览器、执行、环境分组，常用操作任意页面可见。
   - 流程：流程选择、保存。
   - 浏览器：启动 Chrome、关闭托管。

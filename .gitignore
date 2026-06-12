@@ -27,6 +27,9 @@
 *.tar.gz
 *.log
 
+# Font files downloaded by build scripts (keep only licenses in repo)
+assets/fonts/*.ttf
+
 # Go test/build cache artifacts
 *.test
 *.out
