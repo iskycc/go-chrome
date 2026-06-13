@@ -32,6 +32,7 @@ type globalToolbar struct {
 	stopBtn        *widget.Button
 	progress       *widget.ProgressBar
 	progressText   *progressLabel
+	progressLine   fyne.CanvasObject
 
 	flowOptions []flowSelectOption
 	flowByID    map[string]*flow.Flow
@@ -139,15 +140,13 @@ func newGlobalToolbar(app *App) *globalToolbar {
 
 	// Progress line: a separate, lightweight status line below the buttons.
 	progressBarBox := container.NewGridWrap(fyne.NewSize(360, t.progress.MinSize().Height), t.progress)
-	progressLine := container.NewBorder(
-		nil,
-		nil,
+	t.progressLine = container.NewHBox(
 		t.progressText.box,
-		nil,
 		progressBarBox,
 	)
+	t.progressLine.Hide()
 
-	t.widget = container.NewVBox(operationBand, progressLine)
+	t.widget = container.NewVBox(operationBand, t.progressLine)
 	return t
 }
 
@@ -225,10 +224,20 @@ func (t *globalToolbar) refreshEnvironments() {
 // setProgress updates the lightweight progress display.
 func (t *globalToolbar) setProgress(current, total int, stepName string) {
 	fyne.Do(func() {
-		if total > 0 {
-			t.progress.Max = float64(total)
-			t.progress.SetValue(float64(current))
+		if total <= 0 {
+			t.progress.SetValue(0)
+			t.progressText.set(0, 0, "")
+			if t.progressLine != nil {
+				t.progressLine.Hide()
+			}
+			return
 		}
+
+		if t.progressLine != nil {
+			t.progressLine.Show()
+		}
+		t.progress.Max = float64(total)
+		t.progress.SetValue(float64(current))
 		t.progressText.set(current, total, stepName)
 	})
 }

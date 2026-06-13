@@ -68,19 +68,33 @@ func (si *statusItem) setValue(text string) {
 
 func (si *statusItem) setKind(kind statusKind) {
 	si.dot = newStatusDot(kind)
-	// Rebuild the row so the new dot is visible.
-	objects := si.row.(*fyne.Container).Objects
-	if len(objects) >= 3 {
-		objects[0] = si.dot
+	// The row is container.NewCenter(container.NewHBox(dot, field, valueBox)).
+	center, ok := si.row.(*fyne.Container)
+	if !ok || len(center.Objects) == 0 {
+		return
 	}
+	hbox, ok := center.Objects[0].(*fyne.Container)
+	if !ok || len(hbox.Objects) == 0 {
+		return
+	}
+	hbox.Objects[0] = si.dot
+	hbox.Refresh()
 	si.row.Refresh()
 }
 
 // setColor is kept for callers that already have a raw color. It recolors the
 // dot without changing the badge helper.
 func (si *statusItem) setColor(c color.Color) {
-	if dot, ok := si.dot.(*fyne.Container); ok {
-		if circle, ok := dot.Objects[0].(*canvas.Circle); ok {
+	center, ok := si.row.(*fyne.Container)
+	if !ok || len(center.Objects) == 0 {
+		return
+	}
+	hbox, ok := center.Objects[0].(*fyne.Container)
+	if !ok || len(hbox.Objects) == 0 {
+		return
+	}
+	if dotWrap, ok := hbox.Objects[0].(*fyne.Container); ok {
+		if circle, ok := dotWrap.Objects[0].(*canvas.Circle); ok {
 			circle.FillColor = c
 			circle.Refresh()
 		}
@@ -101,7 +115,7 @@ type statusBar struct {
 
 func newStatusBar(app *App) *statusBar {
 	sb := &statusBar{app: app}
-	sb.flow = newStatusItem("当前流程", "未选择", statusMuted, 220)
+	sb.flow = newStatusItem("当前流程", "未选择", statusMuted, 180)
 	sb.save = newStatusItem("保存", "未修改", statusSuccess, 110)
 	sb.chrome = newStatusItem("Chrome", "未安装", statusWarning, 110)
 	sb.run = newStatusItem("运行", "空闲", statusMuted, 160)
