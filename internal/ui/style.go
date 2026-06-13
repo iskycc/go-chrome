@@ -175,13 +175,12 @@ func newToolbarGroup(title string, controls ...fyne.CanvasObject) fyne.CanvasObj
 }
 
 // newInlineToolbarGroup is a compact, single-line group for the top toolbar.
-// It shows a muted title followed by controls without cards or heavy borders.
+// It shows a muted title followed by controls, all vertically centered.
 func newInlineToolbarGroup(title string, controls ...fyne.CanvasObject) fyne.CanvasObject {
-	titleText := newMutedText(title)
-	return container.NewHBox(
-		titleText,
+	return container.NewCenter(container.NewHBox(
+		newMutedText(title),
 		container.NewHBox(controls...),
-	)
+	))
 }
 
 // -----------------------------------------------------------------------------

@@ -58,7 +58,7 @@ func newStatusItem(field, defaultValue string, kind statusKind, valueWidth float
 		value: val,
 		dot:   newStatusDot(kind),
 	}
-	si.row = container.NewHBox(si.dot, si.field, valueBox)
+	si.row = container.NewCenter(container.NewHBox(si.dot, si.field, valueBox))
 	return si
 }
 

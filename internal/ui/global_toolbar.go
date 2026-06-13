@@ -86,7 +86,7 @@ func newGlobalToolbar(app *App) *globalToolbar {
 		go app.startBrowser()
 	})
 
-	t.stopChromeBtn = widget.NewButtonWithIcon("关闭托管", theme.CancelIcon(), func() {
+	t.stopChromeBtn = widget.NewButtonWithIcon("关闭", theme.CancelIcon(), func() {
 		go app.closeManagedChrome()
 	})
 	t.stopChromeBtn.Importance = widget.DangerImportance
@@ -112,9 +112,9 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	t.progress.Max = 1
 	t.progressText = newProgressLabel(160, 360)
 
-	// Compact single-line groups for the top toolbar.
+	// Operation band: single line, single-height controls only.
 	flowBox := newInlineToolbarGroup("流程",
-		container.NewGridWrap(fyne.NewSize(240, t.flowSelect.MinSize().Height), t.flowSelect),
+		container.NewGridWrap(fyne.NewSize(220, t.flowSelect.MinSize().Height), t.flowSelect),
 		t.saveBtn,
 	)
 	browserBox := newInlineToolbarGroup("浏览器",
@@ -127,20 +127,27 @@ func newGlobalToolbar(app *App) *globalToolbar {
 		t.stopBtn,
 	)
 	envBox := newInlineToolbarGroup("环境",
-		container.NewGridWrap(fyne.NewSize(180, t.envSelect.MinSize().Height), t.envSelect),
+		container.NewGridWrap(fyne.NewSize(160, t.envSelect.MinSize().Height), t.envSelect),
 	)
 
-	// Fixed-width progress area so it does not dominate the whole toolbar row.
+	operationBand := container.NewHBox(
+		flowBox,
+		browserBox,
+		runBox,
+		envBox,
+	)
+
+	// Progress line: a separate, lightweight status line below the buttons.
 	progressBarBox := container.NewGridWrap(fyne.NewSize(360, t.progress.MinSize().Height), t.progress)
-	progressBox := container.NewVBox(t.progressText.box, progressBarBox)
+	progressLine := container.NewBorder(
+		nil,
+		nil,
+		t.progressText.box,
+		nil,
+		progressBarBox,
+	)
 
-	left := container.NewHBox(flowBox)
-	center := container.NewHBox(browserBox, runBox)
-	right := container.NewHBox(envBox, progressBox)
-
-	operationBand := container.NewBorder(nil, nil, left, right, center)
-
-	t.widget = operationBand
+	t.widget = container.NewVBox(operationBand, progressLine)
 	return t
 }
 
