@@ -192,12 +192,17 @@ func (a *App) buildUI() {
 	)
 	a.moduleTabs.SetTabLocation(container.TabLocationTop)
 
-	content := container.NewBorder(
+	topArea := container.NewVBox(
 		a.statusBar.widget,
+		a.globalToolbar.widget,
+	)
+
+	content := container.NewBorder(
+		topArea,
 		nil,
 		nil,
 		nil,
-		container.NewBorder(a.globalToolbar.widget, nil, nil, nil, a.moduleTabs),
+		a.moduleTabs,
 	)
 	a.mainWin.SetContent(content)
 	a.refreshFlowList()

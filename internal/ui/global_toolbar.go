@@ -5,7 +5,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -25,6 +24,7 @@ type globalToolbar struct {
 	widget         fyne.CanvasObject
 	flowSelect     *widget.Select
 	envSelect      *widget.Select
+	saveBtn        *widget.Button
 	startChromeBtn *widget.Button
 	stopChromeBtn  *widget.Button
 	runBtn         *widget.Button
@@ -77,6 +77,11 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	})
 	t.envSelect.SetSelected("默认环境")
 
+	t.saveBtn = widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() {
+		app.saveCurrentFlow()
+	})
+	t.saveBtn.Importance = widget.MediumImportance
+
 	t.startChromeBtn = widget.NewButtonWithIcon("启动", theme.ComputerIcon(), func() {
 		go app.startBrowser()
 	})
@@ -107,35 +112,35 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	t.progress.Max = 1
 	t.progressText = newProgressLabel(160, 360)
 
-	progressBand := container.NewVBox(t.progressText.box, t.progress)
-
-	flowBox := container.NewHBox(
-		widget.NewLabelWithStyle("流程", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	// Compact single-line groups for the top toolbar.
+	flowBox := newInlineToolbarGroup("流程",
 		container.NewGridWrap(fyne.NewSize(240, t.flowSelect.MinSize().Height), t.flowSelect),
+		t.saveBtn,
 	)
-	browserBox := newToolbarGroup("浏览器",
+	browserBox := newInlineToolbarGroup("浏览器",
 		t.startChromeBtn,
 		t.stopChromeBtn,
 	)
-	runBox := newToolbarGroup("执行",
+	runBox := newInlineToolbarGroup("执行",
 		t.runBtn,
 		t.stepBtn,
 		t.stopBtn,
 	)
-	envBox := container.NewHBox(
-		widget.NewLabelWithStyle("环境", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	envBox := newInlineToolbarGroup("环境",
 		container.NewGridWrap(fyne.NewSize(180, t.envSelect.MinSize().Height), t.envSelect),
 	)
 
-	operationBand := container.NewHBox(
-		flowBox,
-		container.NewHBox(layout.NewSpacer()),
-		browserBox,
-		runBox,
-		envBox,
-	)
+	// Fixed-width progress area so it does not dominate the whole toolbar row.
+	progressBarBox := container.NewGridWrap(fyne.NewSize(360, t.progress.MinSize().Height), t.progress)
+	progressBox := container.NewVBox(t.progressText.box, progressBarBox)
 
-	t.widget = container.NewBorder(nil, progressBand, nil, nil, operationBand)
+	left := container.NewHBox(flowBox)
+	center := container.NewHBox(browserBox, runBox)
+	right := container.NewHBox(envBox, progressBox)
+
+	operationBand := container.NewBorder(nil, nil, left, right, center)
+
+	t.widget = operationBand
 	return t
 }
 

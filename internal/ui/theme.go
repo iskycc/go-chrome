@@ -67,9 +67,9 @@ func (a *appTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) co
 		return color.NRGBA{R: 0xbd, G: 0xc3, B: 0xcc, A: 0xff}
 	case theme.ColorNameSeparator:
 		if isDark {
-			return color.NRGBA{R: 0x30, G: 0x36, B: 0x42, A: 0xff}
+			return color.NRGBA{R: 0x3a, G: 0x42, B: 0x4d, A: 0xff}
 		}
-		return color.NRGBA{R: 0xd8, G: 0xde, B: 0xe8, A: 0xff}
+		return color.NRGBA{R: 0xe2, G: 0xe8, B: 0xf0, A: 0xff}
 	case theme.ColorNamePlaceHolder:
 		if isDark {
 			return color.NRGBA{R: 0x7d, G: 0x86, B: 0x94, A: 0xff}

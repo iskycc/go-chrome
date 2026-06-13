@@ -47,13 +47,15 @@ func newFlowEditorPanel(app *App, onChanged func()) *flowEditorPanel {
 		}
 	}
 
-	p.widget = container.NewBorder(
-		widget.NewLabelWithStyle("1. 流程属性", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		nil, nil, nil,
-		widget.NewForm(
-			widget.NewFormItem("名称", p.nameEntry),
-			widget.NewFormItem("描述", p.descEntry),
-			widget.NewFormItem("标签", p.tagsEntry),
+	p.widget = container.NewPadded(
+		container.NewBorder(
+			newSectionHeader("流程属性"),
+			nil, nil, nil,
+			widget.NewForm(
+				widget.NewFormItem("名称", p.nameEntry),
+				widget.NewFormItem("描述", p.descEntry),
+				widget.NewFormItem("标签", p.tagsEntry),
+			),
 		),
 	)
 	return p

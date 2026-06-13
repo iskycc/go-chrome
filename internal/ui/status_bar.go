@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"go-chrome/internal/browser"
@@ -96,7 +95,6 @@ type statusBar struct {
 	save   *statusItem
 	chrome *statusItem
 	run    *statusItem
-	saveBtn *widget.Button
 
 	saveResetTimer *time.Timer
 }
@@ -107,11 +105,6 @@ func newStatusBar(app *App) *statusBar {
 	sb.save = newStatusItem("保存", "未修改", statusSuccess, 110)
 	sb.chrome = newStatusItem("Chrome", "未安装", statusWarning, 110)
 	sb.run = newStatusItem("运行", "空闲", statusMuted, 160)
-
-	sb.saveBtn = widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() {
-		app.saveCurrentFlow()
-	})
-	sb.saveBtn.Importance = widget.MediumImportance
 
 	title := widget.NewLabelWithStyle("Go Chrome", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
@@ -124,7 +117,6 @@ func newStatusBar(app *App) *statusBar {
 		sb.flow.row,
 		itemSpacer,
 		sb.save.row,
-		sb.saveBtn,
 		itemSpacer,
 		sb.chrome.row,
 		itemSpacer,

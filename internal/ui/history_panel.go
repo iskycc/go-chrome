@@ -36,7 +36,8 @@ func newHistoryListItem() *historyListItem {
 	item.meta = widget.NewLabel("")
 	item.meta.Truncation = fyne.TextTruncateEllipsis
 
-	item.box = container.NewVBox(item.primary, item.meta)
+	inner := container.NewVBox(item.primary, item.meta)
+	item.box = container.NewPadded(inner)
 	return item
 }
 

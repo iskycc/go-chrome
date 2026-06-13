@@ -33,7 +33,8 @@ func newFlowListItem() *flowListItem {
 	item.meta = widget.NewLabel("")
 	item.meta.Truncation = fyne.TextTruncateEllipsis
 
-	item.box = container.NewVBox(item.name, item.meta)
+	inner := container.NewVBox(item.name, item.meta)
+	item.box = container.NewPadded(inner)
 	return item
 }
 
@@ -158,9 +159,14 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
 	})
 
+	filters := container.NewVBox(
+		p.search,
+		container.NewGridWrap(fyne.NewSize(180, p.tagFilter.MinSize().Height), p.tagFilter),
+	)
+
 	top := container.NewVBox(
 		newSectionHeader("流程库", newBtn, moreBtn),
-		container.NewHBox(p.search, p.tagFilter),
+		filters,
 	)
 
 	p.widget = container.NewBorder(

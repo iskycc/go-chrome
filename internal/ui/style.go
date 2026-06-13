@@ -159,7 +159,8 @@ func newPageTitle(title, subtitle string) fyne.CanvasObject {
 // -----------------------------------------------------------------------------
 
 // newToolbarGroup wraps a set of controls with a subtle background and border
-// to visually group related actions.
+// to visually group related actions. Suitable for page-level panels, not the
+// top toolbar.
 func newToolbarGroup(title string, controls ...fyne.CanvasObject) fyne.CanvasObject {
 	header := newMutedText(title)
 	body := container.NewHBox(controls...)
@@ -171,6 +172,16 @@ func newToolbarGroup(title string, controls ...fyne.CanvasObject) fyne.CanvasObj
 	border.StrokeWidth = 1
 
 	return container.NewStack(bg, border, content)
+}
+
+// newInlineToolbarGroup is a compact, single-line group for the top toolbar.
+// It shows a muted title followed by controls without cards or heavy borders.
+func newInlineToolbarGroup(title string, controls ...fyne.CanvasObject) fyne.CanvasObject {
+	titleText := newMutedText(title)
+	return container.NewHBox(
+		titleText,
+		container.NewHBox(controls...),
+	)
 }
 
 // -----------------------------------------------------------------------------
