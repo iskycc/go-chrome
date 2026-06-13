@@ -7,7 +7,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -15,6 +14,59 @@ import (
 	"github.com/google/uuid"
 	"go-chrome/internal/db"
 )
+
+// envListItem is a two-line cell for the environment list.
+type envListItem struct {
+	widget.BaseWidget
+
+	name *widget.Label
+	meta *widget.Label
+	box  *fyne.Container
+
+	onSecondaryTap func(e *fyne.PointEvent)
+}
+
+func newEnvListItem() *envListItem {
+	item := &envListItem{}
+	item.ExtendBaseWidget(item)
+
+	item.name = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	item.name.Truncation = fyne.TextTruncateEllipsis
+
+	item.meta = widget.NewLabel("")
+	item.meta.Truncation = fyne.TextTruncateEllipsis
+
+	item.box = container.NewVBox(item.name, item.meta)
+	return item
+}
+
+func (item *envListItem) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(item.box)
+}
+
+func (item *envListItem) TappedSecondary(e *fyne.PointEvent) {
+	if item.onSecondaryTap != nil {
+		item.onSecondaryTap(e)
+	}
+}
+
+func (item *envListItem) MinSize() fyne.Size {
+	return item.box.MinSize().Add(fyne.NewSize(0, theme.Padding()))
+}
+
+func (item *envListItem) setEnv(e *db.Environment, varCount int) {
+	name := e.Name
+	if e.IsActive {
+		name += " [当前]"
+	}
+	item.name.SetText(name)
+
+	desc := strings.TrimSpace(e.Description)
+	if desc == "" {
+		desc = "无说明"
+	}
+	item.meta.SetText(fmt.Sprintf("%d 个变量 · %s", varCount, desc))
+}
 
 // envPanel is the main environment configuration tab.
 type envPanel struct {
@@ -26,7 +78,11 @@ type envPanel struct {
 	currentEnvID string
 	currentVarID string
 	currentVars  []*db.EnvironmentVariable
+	emptyState   fyne.CanvasObject
 }
+
+var envVarHeaders = []string{"KEY", "VALUE", "类型", "说明"}
+var envVarWidths = []float32{140, 180, 72, 200}
 
 func newEnvPanel(app *App) *envPanel {
 	p := &envPanel{app: app}
@@ -41,7 +97,7 @@ func newEnvPanel(app *App) *envPanel {
 	p.list = widget.NewList(
 		func() int { return len(p.filteredEnvs()) },
 		func() fyne.CanvasObject {
-			return newContextMenuLabel("环境", nil)
+			return newEnvListItem()
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			envs := p.filteredEnvs()
@@ -49,13 +105,9 @@ func newEnvPanel(app *App) *envPanel {
 				return
 			}
 			e := envs[id]
-			label := item.(*contextMenuLabel)
-			if e.IsActive {
-				label.SetText(e.Name + " [当前]")
-			} else {
-				label.SetText(e.Name)
-			}
-			label.onSecondaryTap = func(e *fyne.PointEvent) {
+			cell := item.(*envListItem)
+			cell.setEnv(e, p.envVarCount(e.ID))
+			cell.onSecondaryTap = func(e *fyne.PointEvent) {
 				p.showEnvContextMenu(int(id), e)
 			}
 		},
@@ -69,7 +121,7 @@ func newEnvPanel(app *App) *envPanel {
 	}
 
 	p.varTable = widget.NewTableWithHeaders(
-		func() (int, int) { return len(p.currentVars), 5 },
+		func() (int, int) { return len(p.currentVars), len(envVarHeaders) },
 		func() fyne.CanvasObject { return newContextMenuLabel("cell", nil) },
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			label := cell.(*contextMenuLabel)
@@ -90,14 +142,12 @@ func newEnvPanel(app *App) *envPanel {
 				}
 			case 2:
 				if v.IsSecret {
-					label.SetText("是")
+					label.SetText("敏感")
 				} else {
-					label.SetText("")
+					label.SetText("普通")
 				}
 			case 3:
 				label.SetText(v.Description)
-			case 4:
-				label.SetText("")
 			}
 			label.onSecondaryTap = func(e *fyne.PointEvent) {
 				p.showVarContextMenu(id.Row, e)
@@ -113,29 +163,18 @@ func newEnvPanel(app *App) *envPanel {
 	p.varTable.UpdateHeader = func(id widget.TableCellID, cell fyne.CanvasObject) {
 		label := cell.(*widget.Label)
 		if id.Row == -1 {
-			switch id.Col {
-			case 0:
-				label.SetText("KEY")
-			case 1:
-				label.SetText("VALUE")
-			case 2:
-				label.SetText("敏感")
-			case 3:
-				label.SetText("说明")
-			case 4:
-				label.SetText("操作")
-			default:
+			if id.Col >= 0 && id.Col < len(envVarHeaders) {
+				label.SetText(envVarHeaders[id.Col])
+			} else {
 				label.SetText("")
 			}
 		} else {
 			label.SetText("")
 		}
 	}
-	p.varTable.SetColumnWidth(0, 120)
-	p.varTable.SetColumnWidth(1, 160)
-	p.varTable.SetColumnWidth(2, 50)
-	p.varTable.SetColumnWidth(3, 160)
-	p.varTable.SetColumnWidth(4, 50)
+	for i, w := range envVarWidths {
+		p.varTable.SetColumnWidth(i, w)
+	}
 	p.varTable.OnSelected = func(id widget.TableCellID) {
 		if id.Row < 0 || id.Row >= len(p.currentVars) {
 			return
@@ -147,6 +186,7 @@ func newEnvPanel(app *App) *envPanel {
 	newEnvBtn := widget.NewButtonWithIcon("新建环境", theme.ContentAddIcon(), func() {
 		p.showNewEnvDialog()
 	})
+	newEnvBtn.Importance = widget.HighImportance
 	var envMoreBtn *widget.Button
 	envMoreBtn = widget.NewButtonWithIcon("环境操作", theme.MoreHorizontalIcon(), func() {
 		hasEnv := p.currentEnvID != ""
@@ -170,6 +210,7 @@ func newEnvPanel(app *App) *envPanel {
 	newVarBtn := widget.NewButtonWithIcon("新增变量", theme.ContentAddIcon(), func() {
 		p.showNewVarDialog()
 	})
+	newVarBtn.Importance = widget.HighImportance
 	var varMoreBtn *widget.Button
 	varMoreBtn = widget.NewButtonWithIcon("变量操作", theme.MoreHorizontalIcon(), func() {
 		hasVar := p.currentVarID != ""
@@ -188,28 +229,31 @@ func newEnvPanel(app *App) *envPanel {
 		p.showExportEnvDialog()
 	})
 
+	newVarBtnEmpty := widget.NewButtonWithIcon("新增变量", theme.ContentAddIcon(), func() {
+		p.showNewVarDialog()
+	})
+	newVarBtnEmpty.Importance = widget.HighImportance
+	importBtnEmpty := widget.NewButtonWithIcon("导入配置", theme.DownloadIcon(), func() {
+		p.showImportEnvDialog()
+	})
+	p.emptyState = newEmptyState(
+		"当前环境暂无变量",
+		"点击新增变量或导入配置文件",
+		container.NewHBox(newVarBtnEmpty, importBtnEmpty),
+	)
+
 	leftTop := container.NewVBox(
-		container.NewHBox(
-			widget.NewLabelWithStyle("环境列表", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			layout.NewSpacer(),
-			newEnvBtn,
-			envMoreBtn,
-		),
+		newSectionHeader("环境列表", newEnvBtn, envMoreBtn),
 		p.search,
 	)
 	left := container.NewBorder(leftTop, nil, nil, nil, container.NewScroll(p.list))
 
 	rightTop := container.NewVBox(
-		container.NewHBox(
-			widget.NewLabelWithStyle("环境变量", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			layout.NewSpacer(),
-			newVarBtn,
-			importBtn,
-			exportBtn,
-			varMoreBtn,
-		),
+		newSectionHeader("环境变量", newVarBtn, varMoreBtn),
+		newSectionHeader("配置文件", importBtn, exportBtn),
 	)
-	right := container.NewBorder(rightTop, nil, nil, nil, container.NewScroll(p.varTable))
+	rightContent := container.NewStack(p.varTable, p.emptyState)
+	right := container.NewBorder(rightTop, nil, nil, nil, rightContent)
 
 	split := container.NewHSplit(left, right)
 	split.SetOffset(0.4)
@@ -217,6 +261,14 @@ func newEnvPanel(app *App) *envPanel {
 
 	p.refresh()
 	return p
+}
+
+func (p *envPanel) envVarCount(envID string) int {
+	if p.app.envRepo == nil || envID == "" {
+		return 0
+	}
+	vars, _ := p.app.envRepo.ListVars(envID)
+	return len(vars)
 }
 
 func (p *envPanel) refresh() {
@@ -249,6 +301,13 @@ func (p *envPanel) refreshVars() {
 	if p.varTable != nil {
 		p.varTable.Refresh()
 		p.varTable.UnselectAll()
+	}
+	if len(p.currentVars) == 0 {
+		p.emptyState.Show()
+		p.varTable.Hide()
+	} else {
+		p.emptyState.Hide()
+		p.varTable.Show()
 	}
 }
 

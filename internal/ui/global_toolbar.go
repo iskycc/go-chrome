@@ -5,6 +5,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -24,7 +25,6 @@ type globalToolbar struct {
 	widget         fyne.CanvasObject
 	flowSelect     *widget.Select
 	envSelect      *widget.Select
-	saveBtn        *widget.Button
 	startChromeBtn *widget.Button
 	stopChromeBtn  *widget.Button
 	runBtn         *widget.Button
@@ -77,12 +77,7 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	})
 	t.envSelect.SetSelected("默认环境")
 
-	t.saveBtn = widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() {
-		app.saveCurrentFlow()
-	})
-	t.saveBtn.Importance = widget.MediumImportance
-
-	t.startChromeBtn = widget.NewButtonWithIcon("启动 Chrome", theme.ComputerIcon(), func() {
+	t.startChromeBtn = widget.NewButtonWithIcon("启动", theme.ComputerIcon(), func() {
 		go app.startBrowser()
 	})
 
@@ -97,11 +92,11 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	})
 	t.runBtn.Importance = widget.HighImportance
 
-	t.stepBtn = widget.NewButtonWithIcon("单步执行", theme.MediaReplayIcon(), func() {
+	t.stepBtn = widget.NewButtonWithIcon("单步", theme.MediaReplayIcon(), func() {
 		go app.onStepButton()
 	})
 
-	t.stopBtn = widget.NewButtonWithIcon("停止流程", theme.MediaStopIcon(), func() {
+	t.stopBtn = widget.NewButtonWithIcon("停止", theme.MediaStopIcon(), func() {
 		app.stopCurrentRun()
 	})
 	t.stopBtn.Disable()
@@ -112,40 +107,35 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	t.progress.Max = 1
 	t.progressText = newProgressLabel(160, 360)
 
-	progressBox := container.NewVBox(t.progressText.box, t.progress)
+	progressBand := container.NewVBox(t.progressText.box, t.progress)
 
 	flowBox := container.NewHBox(
 		widget.NewLabelWithStyle("流程", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewGridWrap(fyne.NewSize(220, t.flowSelect.MinSize().Height), t.flowSelect),
-		t.saveBtn,
+		container.NewGridWrap(fyne.NewSize(240, t.flowSelect.MinSize().Height), t.flowSelect),
 	)
-	browserBox := container.NewHBox(
-		widget.NewLabelWithStyle("浏览器", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	browserBox := newToolbarGroup("浏览器",
 		t.startChromeBtn,
 		t.stopChromeBtn,
 	)
-	runBox := container.NewHBox(
-		widget.NewLabelWithStyle("执行", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	runBox := newToolbarGroup("执行",
 		t.runBtn,
 		t.stepBtn,
 		t.stopBtn,
 	)
 	envBox := container.NewHBox(
 		widget.NewLabelWithStyle("环境", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		t.envSelect,
+		container.NewGridWrap(fyne.NewSize(180, t.envSelect.MinSize().Height), t.envSelect),
 	)
 
-	top := container.NewHBox(
+	operationBand := container.NewHBox(
 		flowBox,
-		widget.NewSeparator(),
+		container.NewHBox(layout.NewSpacer()),
 		browserBox,
-		widget.NewSeparator(),
 		runBox,
-		widget.NewSeparator(),
 		envBox,
 	)
 
-	t.widget = container.NewBorder(nil, progressBox, nil, nil, top)
+	t.widget = container.NewBorder(nil, progressBand, nil, nil, operationBand)
 	return t
 }
 
@@ -242,7 +232,7 @@ func (t *globalToolbar) setRunning(running bool) {
 			t.runBtn.Enable()
 			t.stepBtn.Enable()
 			t.stopBtn.Disable()
-			t.stepBtn.SetText("单步执行")
+			t.stepBtn.SetText("单步")
 		}
 	})
 }

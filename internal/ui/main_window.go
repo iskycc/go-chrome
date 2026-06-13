@@ -792,7 +792,9 @@ func (a *App) promptSaveBefore(next func()) {
 	body.Wrapping = fyne.TextWrapWord
 
 	saveBtn := widget.NewButtonWithIcon("保存并继续", theme.DocumentSaveIcon(), nil)
+	saveBtn.Importance = widget.HighImportance
 	discardBtn := widget.NewButtonWithIcon("放弃修改", theme.DeleteIcon(), nil)
+	discardBtn.Importance = widget.DangerImportance
 	cancelBtn := widget.NewButton("取消", nil)
 
 	btnRow := container.NewGridWithColumns(3, saveBtn, discardBtn, cancelBtn)
@@ -895,7 +897,9 @@ func (a *App) promptStepChanges(s *flow.Step, idx int) {
 	body.Wrapping = fyne.TextWrapWord
 
 	applyBtn := widget.NewButtonWithIcon("应用并切换", theme.ConfirmIcon(), nil)
+	applyBtn.Importance = widget.HighImportance
 	discardBtn := widget.NewButtonWithIcon("放弃修改", theme.DeleteIcon(), nil)
+	discardBtn.Importance = widget.DangerImportance
 	cancelBtn := widget.NewButton("取消", nil)
 
 	content := container.NewVBox(body, container.NewHBox(applyBtn, discardBtn, cancelBtn))

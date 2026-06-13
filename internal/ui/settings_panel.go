@@ -36,16 +36,19 @@ func newSettingsPanel(app *App) *settingsPanel {
 		p.updateCustomVisibility()
 	})
 	p.channelSelect = widget.NewSelect([]string{"Stable", "Beta", "Dev", "Canary"}, nil)
+
 	p.customURL = widget.NewEntry()
 	p.customURL.SetPlaceHolder("https://example.com/chrome-win64.zip")
 	p.customSHA = widget.NewEntry()
 	p.customSHA.SetPlaceHolder("可选，用于校验 ZIP SHA256")
 	p.customLabel = widget.NewEntry()
 	p.customLabel.SetPlaceHolder("可选，例如 company-mirror-126")
+
 	p.installDir = widget.NewEntry()
 	p.installDir.SetPlaceHolder("./chrome")
 	p.userDataDir = widget.NewEntry()
 	p.userDataDir.SetPlaceHolder("./data/chrome-profile")
+
 	p.fallback = widget.NewCheck("自定义下载失败后回退官方 Stable", nil)
 	p.keepCache = widget.NewCheck("保留下载缓存 ZIP", nil)
 	p.statusLabel = widget.NewLabel("")
@@ -53,10 +56,9 @@ func newSettingsPanel(app *App) *settingsPanel {
 	p.customBox = container.NewVBox(
 		widget.NewForm(
 			widget.NewFormItem("自定义下载 URL", p.customURL),
-			widget.NewFormItem("SHA256", p.customSHA),
-			widget.NewFormItem("版本标签", p.customLabel),
 		),
 	)
+	p.customBox.Hide()
 
 	saveBtn := widget.NewButtonWithIcon("保存配置", theme.DocumentSaveIcon(), func() {
 		p.save()
@@ -67,32 +69,60 @@ func newSettingsPanel(app *App) *settingsPanel {
 		p.statusLabel.SetText("已恢复默认值，点击保存后生效")
 	})
 
-	form := widget.NewForm(
-		widget.NewFormItem("下载来源", p.sourceSelect),
-		widget.NewFormItem("通道标记", p.channelSelect),
-		widget.NewFormItem("安装目录", p.installDir),
-		widget.NewFormItem("用户数据目录", p.userDataDir),
-		widget.NewFormItem("", p.fallback),
-		widget.NewFormItem("", p.keepCache),
-	)
+	installDirBox := p.pathEntryBox(p.installDir)
+	userDataDirBox := p.pathEntryBox(p.userDataDir)
 
-	header := container.NewBorder(
-		nil, nil,
-		widget.NewLabelWithStyle("浏览器下载配置", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		container.NewHBox(resetBtn, saveBtn),
-		nil,
-	)
-	note := widget.NewLabel("已有本地 Chrome 时不会重新下载；每次流程重放仍会使用隔离 profile 启动新的托管 Chrome。")
-	note.Wrapping = fyne.TextWrapWord
+	content := container.NewVBox(
+		newSectionHeader("Chrome 来源", saveBtn, resetBtn),
+		newMutedText("已有本地 Chrome 时不会重新下载。"),
+		widget.NewForm(
+			widget.NewFormItem("下载来源", p.sourceSelect),
+			widget.NewFormItem("通道标记", p.channelSelect),
+		),
+		p.customBox,
 
-	p.widget = container.NewBorder(
-		header,
+		newSectionHeader("安装与数据目录"),
+		newMutedText("每次流程重放仍会使用隔离 profile 启动新的托管 Chrome。"),
+		widget.NewForm(
+			widget.NewFormItem("安装目录", installDirBox),
+			widget.NewFormItem("用户数据目录", userDataDirBox),
+		),
+
+		newSectionHeader("下载校验"),
+		newMutedText("填写 SHA256 可在自定义下载后进行完整性校验。"),
+		widget.NewForm(
+			widget.NewFormItem("SHA256", p.customSHA),
+			widget.NewFormItem("版本标签", p.customLabel),
+		),
+
+		newSectionHeader("缓存策略"),
+		widget.NewForm(
+			widget.NewFormItem("", p.fallback),
+			widget.NewFormItem("", p.keepCache),
+		),
+
 		container.NewHBox(p.statusLabel),
-		nil, nil,
-		container.NewScroll(container.NewVBox(form, p.customBox, note)),
 	)
+
+	p.widget = container.NewScroll(content)
 	p.load(app.cfg.Chrome)
 	return p
+}
+
+// pathEntryBox wraps a directory entry with a wider budget and a choose button.
+func (p *settingsPanel) pathEntryBox(entry *widget.Entry) fyne.CanvasObject {
+	entryBox := container.NewGridWrap(fyne.NewSize(360, entry.MinSize().Height), entry)
+	chooseBtn := widget.NewButton("选择目录", func() {
+		fd := dialog.NewFolderOpen(func(reader fyne.ListableURI, err error) {
+			if err != nil || reader == nil {
+				return
+			}
+			entry.SetText(reader.Path())
+		}, p.app.mainWin)
+		resizeFileDialog(fd)
+		fd.Show()
+	})
+	return container.NewHBox(entryBox, chooseBtn)
 }
 
 func (p *settingsPanel) load(cfg config.ChromeConfig) {
@@ -152,6 +182,7 @@ func (p *settingsPanel) updateCustomVisibility() {
 	} else {
 		p.customBox.Hide()
 	}
+	p.widget.Refresh()
 }
 
 func sourceLabel(source string) string {

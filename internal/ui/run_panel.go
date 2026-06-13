@@ -26,6 +26,7 @@ type runPanel struct {
 	progressText *progressLabel
 	logBox       *fyne.Container
 	logScroll    *container.Scroll
+	logEmpty     fyne.CanvasObject
 	summary      *widget.Label
 	currentStep  *currentStepLabel
 	artifactBox  *fyne.Container
@@ -42,20 +43,22 @@ func newRunPanel(app *App) *runPanel {
 
 	p.logBox = container.NewVBox()
 	p.logScroll = container.NewScroll(p.logBox)
+	p.logEmpty = newEmptyState("暂无运行日志", "运行开始后日志会显示在这里", nil)
 
-	p.summary = widget.NewLabel("成功：0  失败：0  跳过：0  总耗时：0.0s")
+	p.summary = widget.NewLabel("成功：0  失败：0  跳过：0  耗时：0.0s")
 	p.currentStep = newCurrentStepLabel()
-	p.artifactBox = container.NewHBox()
+	p.artifactBox = container.NewVBox()
 
-	clearLogBtn := widget.NewButtonWithIcon("清空日志", theme.DeleteIcon(), func() {
-		p.clearLog()
-	})
 	copyLogBtn := widget.NewButtonWithIcon("复制日志", theme.ContentCopyIcon(), func() {
 		p.copyLog()
 	})
 	openArtifactBtn := widget.NewButtonWithIcon("打开产物目录", theme.FolderOpenIcon(), func() {
 		p.openArtifactDir()
 	})
+	clearLogBtn := widget.NewButtonWithIcon("清空日志", theme.DeleteIcon(), func() {
+		p.clearLog()
+	})
+	clearLogBtn.Importance = widget.DangerImportance
 
 	var moreBtn *widget.Button
 	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
@@ -65,58 +68,81 @@ func newRunPanel(app *App) *runPanel {
 					p.app.moduleTabs.SelectIndex(4)
 				}
 			}),
+			fyne.NewMenuItemSeparator(),
+			fyne.NewMenuItemWithIcon("清空日志", theme.DeleteIcon(), func() {
+				p.clearLog()
+			}),
 		)
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
 	})
 
 	progressArea := container.NewVBox(p.progressText.box, p.progressBar)
-	actionBtns := container.NewHBox(clearLogBtn, copyLogBtn, openArtifactBtn, moreBtn)
+	actionBtns := container.NewHBox(copyLogBtn, openArtifactBtn, moreBtn, clearLogBtn)
 	topBar := container.NewBorder(nil, nil, nil, actionBtns, progressArea)
 
 	rightPanel := container.NewVBox(
-		widget.NewLabelWithStyle("运行摘要", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		newSectionHeader("运行摘要"),
 		p.summary,
+		newSectionHeader("当前步骤"),
 		p.currentStep.box,
-		widget.NewLabelWithStyle("产物", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		newSectionHeader("产物"),
 		p.artifactBox,
 	)
+	// Give the right panel a fixed width so it reads like an info card; height
+	// is managed by its content with a scroll fallback if it grows.
+	rightCard := container.NewGridWrap(fyne.NewSize(260, 1), container.NewScroll(rightPanel))
+
+	logArea := container.NewStack(p.logScroll, p.logEmpty)
+	p.updateLogVisibility()
 
 	p.widget = container.NewBorder(
 		topBar,
 		nil,
 		nil,
-		rightPanel,
-		p.logScroll,
+		rightCard,
+		logArea,
 	)
 	return p
 }
 
 func (p *runPanel) log(msg string) {
 	fyne.Do(func() {
-		line := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg)
-		item := newLogLine(line, logColor(msg), p)
+		timestamp := time.Now().Format("15:04:05")
+		item := newLogLine(timestamp, msg, logColor(msg), p)
 		p.logBox.Add(item)
 		if len(p.logBox.Objects) > 300 {
 			p.logBox.Objects = p.logBox.Objects[len(p.logBox.Objects)-300:]
 		}
+		p.updateLogVisibility()
 		p.logBox.Refresh()
 		p.logScroll.ScrollToBottom()
 	})
+}
+
+func (p *runPanel) updateLogVisibility() {
+	hasLogs := len(p.logBox.Objects) > 0
+	if hasLogs {
+		p.logEmpty.Hide()
+		p.logScroll.Show()
+	} else {
+		p.logEmpty.Show()
+		p.logScroll.Hide()
+	}
 }
 
 func logColor(msg string) color.Color {
 	lower := strings.ToLower(msg)
 	switch {
 	case strings.Contains(msg, "失败") || strings.Contains(msg, "错误") || strings.Contains(lower, "error") || strings.Contains(lower, "failed"):
-		return color.NRGBA{R: 220, G: 38, B: 38, A: 255}
+		return uiColorDanger()
 	case strings.Contains(msg, "未检测") || strings.Contains(msg, "缺少") || strings.Contains(lower, "warn"):
-		return color.NRGBA{R: 180, G: 83, B: 9, A: 255}
+		return uiColorWarning()
 	case strings.Contains(msg, "成功") || strings.Contains(msg, "完成") || strings.Contains(msg, "就绪") || strings.Contains(msg, "已检测") || strings.Contains(lower, "success"):
-		return color.NRGBA{R: 22, G: 163, B: 74, A: 255}
+		return uiColorSuccess()
 	case strings.Contains(msg, "下载") || strings.Contains(msg, "启动") || strings.Contains(msg, "运行") || strings.Contains(msg, "进度"):
-		return color.NRGBA{R: 37, G: 99, B: 235, A: 255}
+		return uiColorInfo()
 	default:
-		return color.NRGBA{R: 55, G: 65, B: 81, A: 255}
+		return uiColorText()
 	}
 }
 
@@ -133,7 +159,7 @@ func (p *runPanel) setProgress(current, total int, stepName string) {
 func (p *runPanel) setSummary(res *runner.RunResult) {
 	fyne.Do(func() {
 		elapsed := res.FinishedAt.Sub(res.StartedAt).Seconds()
-		p.summary.SetText(fmt.Sprintf("成功：%d  失败：%d  跳过：%d  总耗时：%.1fs", res.SuccessCount, res.FailedCount, res.SkippedCount, elapsed))
+		p.summary.SetText(fmt.Sprintf("成功：%d\n失败：%d\n跳过：%d\n耗时：%.1fs", res.SuccessCount, res.FailedCount, res.SkippedCount, elapsed))
 	})
 }
 
@@ -148,20 +174,23 @@ func (p *runPanel) setArtifacts(screenshot, htmlSnap string) {
 		p.artifactBox.Objects = nil
 		p.artifactDir = ""
 		if screenshot != "" {
-			label := newContextMenuLabel("截图："+screenshot, func(e *fyne.PointEvent) {
+			label := newContextMenuLabel(filepath.Base(screenshot), func(e *fyne.PointEvent) {
 				p.showArtifactContextMenu(screenshot, "截图路径", e)
 			})
 			p.artifactBox.Objects = append(p.artifactBox.Objects, label)
 			p.artifactDir = filepath.Dir(screenshot)
 		}
 		if htmlSnap != "" {
-			label := newContextMenuLabel("HTML："+htmlSnap, func(e *fyne.PointEvent) {
+			label := newContextMenuLabel(filepath.Base(htmlSnap), func(e *fyne.PointEvent) {
 				p.showArtifactContextMenu(htmlSnap, "HTML 路径", e)
 			})
 			p.artifactBox.Objects = append(p.artifactBox.Objects, label)
 			if p.artifactDir == "" {
 				p.artifactDir = filepath.Dir(htmlSnap)
 			}
+		}
+		if len(p.artifactBox.Objects) == 0 {
+			p.artifactBox.Objects = append(p.artifactBox.Objects, newMutedText("暂无产物"))
 		}
 		p.artifactBox.Refresh()
 	})
@@ -171,6 +200,7 @@ func (p *runPanel) clearArtifacts() {
 	fyne.Do(func() {
 		p.artifactBox.Objects = nil
 		p.artifactDir = ""
+		p.artifactBox.Objects = append(p.artifactBox.Objects, newMutedText("暂无产物"))
 		p.artifactBox.Refresh()
 	})
 }
@@ -201,6 +231,7 @@ func (p *runPanel) refreshEnvironments() {
 func (p *runPanel) clearLog() {
 	fyne.Do(func() {
 		p.logBox.Objects = nil
+		p.updateLogVisibility()
 		p.logBox.Refresh()
 	})
 }
@@ -210,7 +241,7 @@ func (p *runPanel) copyLog() {
 		var lines []string
 		for _, obj := range p.logBox.Objects {
 			if item, ok := obj.(*logLine); ok {
-				lines = append(lines, item.text)
+				lines = append(lines, item.fullText)
 			}
 		}
 		p.app.fyneApp.Clipboard().SetContent(strings.Join(lines, "\n"))
@@ -297,31 +328,51 @@ func (p *runPanel) showLogContextMenu(lineText string, e *fyne.PointEvent) {
 	showContextMenu(menu, p.app.mainWin.Canvas(), e.AbsolutePosition)
 }
 
-// logLine is a single log entry that supports right-click context menu.
+// logLine is a single structured log entry with a left color bar, muted
+// timestamp, and colored message. It supports right-click context menu.
 type logLine struct {
 	widget.BaseWidget
-	text    string
-	p       *runPanel
-	textObj *canvas.Text
+	fullText string
+	p        *runPanel
+
+	bar       *canvas.Rectangle
+	timeLabel *canvas.Text
+	msgLabel  *canvas.Text
+	box       *fyne.Container
 }
 
-func newLogLine(text string, color color.Color, p *runPanel) *logLine {
-	item := &logLine{text: text, p: p}
+func newLogLine(timestamp, msg string, msgColor color.Color, p *runPanel) *logLine {
+	item := &logLine{
+		fullText: fmt.Sprintf("[%s] %s", timestamp, msg),
+		p:        p,
+	}
 	item.ExtendBaseWidget(item)
-	item.textObj = canvas.NewText(text, color)
-	item.textObj.TextSize = 13
-	item.textObj.TextStyle = fyne.TextStyle{Monospace: true}
+
+	item.bar = canvas.NewRectangle(msgColor)
+	item.bar.SetMinSize(fyne.NewSize(3, 1))
+
+	item.timeLabel = canvas.NewText(timestamp, uiColorMutedText())
+	item.timeLabel.TextSize = theme.CaptionTextSize()
+	item.timeLabel.TextStyle = fyne.TextStyle{Monospace: true}
+
+	item.msgLabel = canvas.NewText(msg, msgColor)
+	item.msgLabel.TextSize = 13
+	item.msgLabel.TextStyle = fyne.TextStyle{Monospace: true}
+
+	item.box = container.NewBorder(nil, nil, item.bar, nil,
+		container.NewHBox(item.timeLabel, item.msgLabel),
+	)
 	return item
 }
 
 func (l *logLine) CreateRenderer() fyne.WidgetRenderer {
-	return widget.NewSimpleRenderer(container.NewWithoutLayout(l.textObj))
+	return widget.NewSimpleRenderer(l.box)
 }
 
 func (l *logLine) MinSize() fyne.Size {
-	return l.textObj.MinSize().Add(fyne.NewSize(0, 2))
+	return l.box.MinSize().Add(fyne.NewSize(0, 2))
 }
 
 func (l *logLine) TappedSecondary(e *fyne.PointEvent) {
-	l.p.showLogContextMenu(l.text, e)
+	l.p.showLogContextMenu(l.fullText, e)
 }

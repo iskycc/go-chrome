@@ -17,25 +17,69 @@ func newAppTheme() fyne.Theme {
 }
 
 func (a *appTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	isDark := variant == theme.VariantDark
+
 	switch name {
 	case theme.ColorNamePrimary:
-		return color.RGBA{0x1a, 0x73, 0xe8, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x60, G: 0xa5, B: 0xfa, A: 0xff}
+		}
+		return color.NRGBA{R: 0x25, G: 0x63, B: 0xeb, A: 0xff}
 	case theme.ColorNameBackground:
-		return color.RGBA{0xf5, 0xf5, 0xf5, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x11, G: 0x13, B: 0x18, A: 0xff}
+		}
+		return color.NRGBA{R: 0xf6, G: 0xf7, B: 0xf9, A: 0xff}
 	case theme.ColorNameForeground:
-		return color.RGBA{0x21, 0x21, 0x21, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0xe6, G: 0xe8, B: 0xec, A: 0xff}
+		}
+		return color.NRGBA{R: 0x20, G: 0x24, B: 0x2a, A: 0xff}
 	case theme.ColorNameButton:
-		return color.RGBA{0xff, 0xff, 0xff, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x18, G: 0x1b, B: 0x21, A: 0xff}
+		}
+		return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	case theme.ColorNameDisabled:
-		return color.RGBA{0x9e, 0x9e, 0x9e, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x4a, G: 0x51, B: 0x5c, A: 0xff}
+		}
+		return color.NRGBA{R: 0x9e, G: 0xa3, B: 0xad, A: 0xff}
 	case theme.ColorNameHover:
-		return color.RGBA{0xe8, 0xf0, 0xfe, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x20, G: 0x2c, B: 0x3d, A: 0xff}
+		}
+		return color.NRGBA{R: 0xe8, G: 0xf0, B: 0xfe, A: 0xff}
 	case theme.ColorNameSelection:
-		return color.RGBA{0xbb, 0xde, 0xfb, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x1e, G: 0x3a, B: 0x5f, A: 0xff}
+		}
+		return color.NRGBA{R: 0xbb, G: 0xde, B: 0xfb, A: 0xff}
 	case theme.ColorNameInputBackground:
-		return color.RGBA{0xff, 0xff, 0xff, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x20, G: 0x24, B: 0x2c, A: 0xff}
+		}
+		return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	case theme.ColorNameScrollBar:
-		return color.RGBA{0xbd, 0xbd, 0xbd, 0xff}
+		if isDark {
+			return color.NRGBA{R: 0x3e, G: 0x47, B: 0x55, A: 0xff}
+		}
+		return color.NRGBA{R: 0xbd, G: 0xc3, B: 0xcc, A: 0xff}
+	case theme.ColorNameSeparator:
+		if isDark {
+			return color.NRGBA{R: 0x30, G: 0x36, B: 0x42, A: 0xff}
+		}
+		return color.NRGBA{R: 0xd8, G: 0xde, B: 0xe8, A: 0xff}
+	case theme.ColorNamePlaceHolder:
+		if isDark {
+			return color.NRGBA{R: 0x7d, G: 0x86, B: 0x94, A: 0xff}
+		}
+		return color.NRGBA{R: 0x69, G: 0x71, B: 0x7d, A: 0xff}
+	case theme.ColorNameError:
+		if isDark {
+			return color.NRGBA{R: 0xf8, G: 0x71, B: 0x71, A: 0xff}
+		}
+		return color.NRGBA{R: 0xdc, G: 0x26, B: 0x26, A: 0xff}
 	default:
 		return theme.DefaultTheme().Color(name, variant)
 	}

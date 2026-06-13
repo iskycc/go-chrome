@@ -3,6 +3,7 @@ package ui
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -13,6 +14,31 @@ import (
 	"go-chrome/internal/template"
 )
 
+// stepSection groups related form fields under a header.
+type stepSection struct {
+	title   fyne.CanvasObject
+	content fyne.CanvasObject
+	box     *fyne.Container
+}
+
+func newStepSection(title string, fields ...fyne.CanvasObject) *stepSection {
+	s := &stepSection{
+		title:   newSectionHeader(title),
+		content: container.NewVBox(fields...),
+	}
+	s.box = container.NewVBox(s.title, s.content)
+	s.box.Hide()
+	return s
+}
+
+func (s *stepSection) show() {
+	s.box.Show()
+}
+
+func (s *stepSection) hide() {
+	s.box.Hide()
+}
+
 type stepPropertyPanel struct {
 	app       *App
 	widget    fyne.CanvasObject
@@ -20,7 +46,9 @@ type stepPropertyPanel struct {
 	stepIndex int
 	onApplied func()
 
-	form            *widget.Form
+	scroll *container.Scroll
+	form   *fyne.Container
+
 	nameEntry       *widget.Entry
 	nameErr         *widget.Label
 	typeSelect      *widget.Select
@@ -42,32 +70,36 @@ type stepPropertyPanel struct {
 	noteEntry       *widget.Entry
 	previewLabel    *widget.Label
 
-	nameItem       *widget.FormItem
-	targetItem     *widget.FormItem
-	inputItem      *widget.FormItem
-	expectedItem   *widget.FormItem
-	waitBeforeItem *widget.FormItem
-	waitAfterItem  *widget.FormItem
-	timeoutItem    *widget.FormItem
-	onErrorItem    *widget.FormItem
-	enabledItem    *widget.FormItem
-	maskLogsItem   *widget.FormItem
-	noteItem       *widget.FormItem
+	basicSection   *stepSection
+	targetSection  *stepSection
+	inputSection   *stepSection
+	expectedSection *stepSection
+	waitSection    *stepSection
+	errorSection   *stepSection
+	noteSection    *stepSection
+
+	applyBtn        *widget.Button
+	applyStatusLabel *widget.Label
 }
 
 func newStepPropertyPanel(app *App, onApplied func()) *stepPropertyPanel {
 	p := &stepPropertyPanel{app: app, onApplied: onApplied, stepIndex: -1}
 	p.initWidgets()
-	p.initForm()
+	p.initSections()
+
+	p.applyBtn = widget.NewButton("应用到当前步骤", func() { p.apply() })
+	p.applyBtn.Importance = widget.HighImportance
+	p.applyStatusLabel = widget.NewLabel("")
+
+	bottom := container.NewBorder(nil, nil, nil, p.applyBtn, p.applyStatusLabel)
+	p.form = container.NewVBox()
+	p.scroll = container.NewScroll(p.form)
+
 	p.widget = container.NewBorder(
-		widget.NewLabelWithStyle("步骤属性", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		func() *widget.Button {
-			btn := widget.NewButton("应用到当前步骤", func() { p.apply() })
-			btn.Importance = widget.HighImportance
-			return btn
-		}(),
+		newSectionHeader("步骤属性"),
+		container.NewPadded(bottom),
 		nil, nil,
-		container.NewScroll(p.form),
+		p.scroll,
 	)
 	return p
 }
@@ -75,46 +107,39 @@ func newStepPropertyPanel(app *App, onApplied func()) *stepPropertyPanel {
 func (p *stepPropertyPanel) initWidgets() {
 	p.nameEntry = widget.NewEntry()
 	p.nameEntry.SetPlaceHolder("例如：点击登录按钮")
-	p.nameErr = widget.NewLabel("")
-	p.nameErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.nameErr = newInlineError("")
 	p.nameErr.Hide()
 
 	p.typeSelect = widget.NewSelect(stepTypeOptions, func(s string) { p.rebuildForm() })
 
 	p.targetEntry = widget.NewEntry()
 	p.targetEntry.SetPlaceHolder("XPath 或打开网址")
-	p.targetErr = widget.NewLabel("")
-	p.targetErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.targetErr = newInlineError("")
 	p.targetErr.Hide()
 
 	p.inputEntry = widget.NewEntry()
 	p.inputEntry.SetPlaceHolder("输入内容或模板，例如 SP${11000-11099}")
-	p.inputErr = widget.NewLabel("")
-	p.inputErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.inputErr = newInlineError("")
 	p.inputErr.Hide()
 
 	p.expectedEntry = widget.NewEntry()
 	p.expectedEntry.SetPlaceHolder("期望包含的文本")
-	p.expectedErr = widget.NewLabel("")
-	p.expectedErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.expectedErr = newInlineError("")
 	p.expectedErr.Hide()
 
 	p.waitBeforeEntry = widget.NewEntry()
 	p.waitBeforeEntry.SetText("0")
-	p.waitBeforeErr = widget.NewLabel("")
-	p.waitBeforeErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.waitBeforeErr = newInlineError("")
 	p.waitBeforeErr.Hide()
 
 	p.waitAfterEntry = widget.NewEntry()
 	p.waitAfterEntry.SetText("500")
-	p.waitAfterErr = widget.NewLabel("")
-	p.waitAfterErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.waitAfterErr = newInlineError("")
 	p.waitAfterErr.Hide()
 
 	p.timeoutEntry = widget.NewEntry()
 	p.timeoutEntry.SetText("10000")
-	p.timeoutErr = widget.NewLabel("")
-	p.timeoutErr.TextStyle = fyne.TextStyle{Bold: true}
+	p.timeoutErr = newInlineError("")
 	p.timeoutErr.Hide()
 
 	p.onErrorSelect = widget.NewSelect(errorPolicyOptions, nil)
@@ -128,10 +153,29 @@ func (p *stepPropertyPanel) initWidgets() {
 	p.noteEntry = widget.NewEntry()
 	p.noteEntry.SetPlaceHolder("备注")
 
-	p.previewLabel = widget.NewLabel("模板预览：")
+	p.previewLabel = widget.NewLabel("")
+	p.previewLabel.Wrapping = fyne.TextWrapWord
+	p.previewLabel.Truncation = fyne.TextTruncateEllipsis
 }
 
-func (p *stepPropertyPanel) initForm() {
+func (p *stepPropertyPanel) initSections() {
+	// Basic info
+	p.basicSection = newStepSection("基础信息",
+		widget.NewForm(
+			widget.NewFormItem("步骤名称", container.NewVBox(p.nameEntry, p.nameErr)),
+			widget.NewFormItem("步骤类型", p.typeSelect),
+			widget.NewFormItem("启用状态", p.enabledCheck),
+		),
+	)
+
+	// Target
+	p.targetSection = newStepSection("定位目标",
+		widget.NewForm(
+			widget.NewFormItem("目标", container.NewVBox(p.targetEntry, p.targetErr)),
+		),
+	)
+
+	// Input and template
 	templateSnippets := map[string]string{
 		"数字 6 位":        "${number:6}",
 		"字母 8 位":        "${alpha:8}",
@@ -167,7 +211,7 @@ func (p *stepPropertyPanel) initForm() {
 	previewBtn := widget.NewButton("预览", func() {
 		if p.inputEntry.Text != "" {
 			samples := template.Preview(p.inputEntry.Text, 3)
-			p.previewLabel.SetText("模板预览：" + strings.Join(samples, "，"))
+			p.previewLabel.SetText(strings.Join(samples, "\n"))
 		}
 	})
 	validateBtn := widget.NewButton("校验", func() {
@@ -178,72 +222,85 @@ func (p *stepPropertyPanel) initForm() {
 		}
 	})
 
-	p.nameItem = widget.NewFormItem("步骤名称", container.NewVBox(p.nameEntry, p.nameErr))
-	p.targetItem = widget.NewFormItem("目标", container.NewVBox(p.targetEntry, p.targetErr))
-	p.inputItem = widget.NewFormItem("输入内容", container.NewVBox(p.inputEntry, container.NewHBox(insertTemplateSelect, previewBtn, validateBtn), p.previewLabel, p.inputErr))
-	p.expectedItem = widget.NewFormItem("期望文本", container.NewVBox(p.expectedEntry, p.expectedErr))
-	p.waitBeforeItem = widget.NewFormItem("执行前等待(ms)", container.NewVBox(p.waitBeforeEntry, p.waitBeforeErr))
-	p.waitAfterItem = widget.NewFormItem("执行后等待(ms)", container.NewVBox(p.waitAfterEntry, p.waitAfterErr))
-	p.timeoutItem = widget.NewFormItem("超时时间(ms)", container.NewVBox(p.timeoutEntry, p.timeoutErr))
-	p.onErrorItem = widget.NewFormItem("失败处理", p.onErrorSelect)
-	p.enabledItem = widget.NewFormItem("启用状态", p.enabledCheck)
-	p.maskLogsItem = widget.NewFormItem("日志脱敏", p.maskLogsCheck)
-	p.noteItem = widget.NewFormItem("备注", p.noteEntry)
+	templateToolbar := container.NewHBox(insertTemplateSelect, previewBtn, validateBtn)
+	previewBox := container.NewGridWrap(fyne.NewSize(280, 64), p.previewLabel)
 
-	p.form = widget.NewForm()
+	p.inputSection = newStepSection("输入与模板",
+		widget.NewForm(
+			widget.NewFormItem("输入内容", container.NewVBox(p.inputEntry, templateToolbar, previewBox, p.inputErr)),
+			widget.NewFormItem("日志脱敏", p.maskLogsCheck),
+		),
+	)
+
+	// Expected text
+	p.expectedSection = newStepSection("期望文本",
+		widget.NewForm(
+			widget.NewFormItem("期望文本", container.NewVBox(p.expectedEntry, p.expectedErr)),
+		),
+	)
+
+	// Wait and timeout
+	p.waitSection = newStepSection("等待与超时",
+		widget.NewForm(
+			widget.NewFormItem("执行前等待", p.sizedMSBox(p.waitBeforeEntry, p.waitBeforeErr)),
+			widget.NewFormItem("执行后等待", p.sizedMSBox(p.waitAfterEntry, p.waitAfterErr)),
+			widget.NewFormItem("超时时间", p.sizedMSBox(p.timeoutEntry, p.timeoutErr)),
+		),
+	)
+
+	// Error handling
+	p.errorSection = newStepSection("失败处理",
+		widget.NewForm(
+			widget.NewFormItem("失败处理", p.onErrorSelect),
+		),
+	)
+
+	// Note
+	p.noteSection = newStepSection("备注",
+		widget.NewForm(
+			widget.NewFormItem("备注", p.noteEntry),
+		),
+	)
+}
+
+// sizedMSBox wraps a numeric entry and its error label with a fixed width and
+// an "ms" suffix so unit stays outside the input.
+func (p *stepPropertyPanel) sizedMSBox(entry *widget.Entry, err fyne.CanvasObject) fyne.CanvasObject {
+	entryBox := container.NewGridWrap(fyne.NewSize(120, entry.MinSize().Height), entry)
+	return container.NewVBox(container.NewHBox(entryBox, widget.NewLabel("ms")), err)
 }
 
 func (p *stepPropertyPanel) rebuildForm() {
 	if p.step == nil {
 		return
 	}
-	p.form.Items = nil
-	p.form.Items = append(p.form.Items, p.nameItem)
+	p.form.Objects = nil
+
+	sections := []*stepSection{p.basicSection}
 
 	t := stepTypeFromLabel(p.typeSelect.Selected)
-	show := func(it *widget.FormItem) { p.form.Items = append(p.form.Items, it) }
-
 	switch t {
 	case flow.StepNavigate:
-		show(p.targetItem)
-		show(p.waitAfterItem)
-		show(p.timeoutItem)
-		show(p.onErrorItem)
-		show(p.noteItem)
+		sections = append(sections, p.targetSection, p.waitSection, p.errorSection, p.noteSection)
 	case flow.StepClick:
-		show(p.targetItem)
-		show(p.waitBeforeItem)
-		show(p.waitAfterItem)
-		show(p.timeoutItem)
-		show(p.onErrorItem)
-		show(p.noteItem)
+		sections = append(sections, p.targetSection, p.waitSection, p.errorSection, p.noteSection)
 	case flow.StepInput, flow.StepClearAndInput:
-		show(p.targetItem)
-		show(p.inputItem)
-		show(p.maskLogsItem)
-		show(p.waitBeforeItem)
-		show(p.waitAfterItem)
-		show(p.timeoutItem)
-		show(p.onErrorItem)
-		show(p.noteItem)
+		sections = append(sections, p.targetSection, p.inputSection, p.waitSection, p.errorSection, p.noteSection)
 	case flow.StepWaitPresent, flow.StepWaitVisible, flow.StepGetText, flow.StepAssertExists:
-		show(p.targetItem)
-		show(p.timeoutItem)
-		show(p.onErrorItem)
-		show(p.noteItem)
+		sections = append(sections, p.targetSection, p.waitSection, p.errorSection, p.noteSection)
 	case flow.StepAssertText:
-		show(p.targetItem)
-		show(p.expectedItem)
-		show(p.timeoutItem)
-		show(p.onErrorItem)
-		show(p.noteItem)
+		sections = append(sections, p.targetSection, p.expectedSection, p.waitSection, p.errorSection, p.noteSection)
 	case flow.StepWaitFixed:
-		show(p.waitAfterItem)
-		show(p.noteItem)
+		sections = append(sections, p.waitSection, p.noteSection)
 	case flow.StepScreenshot:
-		show(p.noteItem)
-		show(p.onErrorItem)
+		sections = append(sections, p.errorSection, p.noteSection)
 	}
+
+	for _, s := range sections {
+		s.show()
+		p.form.Objects = append(p.form.Objects, s.box)
+	}
+
 	p.form.Refresh()
 }
 
@@ -267,7 +324,8 @@ func (p *stepPropertyPanel) loadStep(s *flow.Step, idx int, total int) {
 	p.enabledCheck.SetChecked(s.Enabled)
 	p.maskLogsCheck.SetChecked(s.Input.MaskInLogs)
 	p.noteEntry.SetText(s.Note)
-	p.previewLabel.SetText("模板预览：")
+	p.previewLabel.SetText("")
+	p.applyStatusLabel.SetText("")
 	p.rebuildForm()
 }
 
@@ -361,6 +419,7 @@ func (p *stepPropertyPanel) apply() {
 		return
 	}
 	if !p.validate() {
+		p.applyStatusLabel.SetText("请修正标红字段后再应用")
 		return
 	}
 
@@ -392,6 +451,12 @@ func (p *stepPropertyPanel) apply() {
 	if p.onApplied != nil {
 		p.onApplied()
 	}
+
+	p.applyStatusLabel.SetText("已应用")
+	go func() {
+		time.Sleep(2 * time.Second)
+		fyne.Do(func() { p.applyStatusLabel.SetText("") })
+	}()
 }
 
 func (p *stepPropertyPanel) clear() {
@@ -409,9 +474,10 @@ func (p *stepPropertyPanel) clear() {
 	p.enabledCheck.SetChecked(true)
 	p.maskLogsCheck.SetChecked(false)
 	p.noteEntry.SetText("")
-	p.previewLabel.SetText("模板预览：")
+	p.previewLabel.SetText("")
+	p.applyStatusLabel.SetText("")
 	p.clearErrors()
-	p.form.Items = nil
+	p.form.Objects = nil
 	p.form.Refresh()
 }
 

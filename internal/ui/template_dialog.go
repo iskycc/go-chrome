@@ -100,6 +100,7 @@ func (a *App) showTemplatePickerDialog() {
 	split.SetOffset(0.4)
 
 	createBtn := widget.NewButtonWithIcon("创建流程", theme.ContentAddIcon(), nil)
+	createBtn.Importance = widget.HighImportance
 	cancelBtn := widget.NewButton("取消", nil)
 
 	d := dialog.NewCustomWithoutButtons("从模板创建", split, a.mainWin)

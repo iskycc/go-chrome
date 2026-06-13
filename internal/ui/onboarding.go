@@ -28,21 +28,17 @@ func (a *App) firstRunCheck() {
 }
 
 func (a *App) buildEmptyState() fyne.CanvasObject {
-	title := widget.NewLabelWithStyle("暂无流程", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	hint := widget.NewLabel("点击左侧「新建」创建空白流程，或从内置模板开始。")
-	hint.Alignment = fyne.TextAlignCenter
-
 	newBtn := widget.NewButtonWithIcon("新建空白流程", theme.ContentAddIcon(), func() {
 		a.createNewFlow()
 	})
+	newBtn.Importance = widget.HighImportance
 	templateBtn := widget.NewButtonWithIcon("从模板创建", theme.ListIcon(), func() {
 		a.showTemplatePickerDialog()
 	})
 
-	return container.NewCenter(container.NewVBox(
-		widget.NewIcon(theme.DocumentIcon()),
-		title,
-		hint,
+	return newEmptyState(
+		"暂无流程",
+		"点击「新建」创建空白流程，或从内置模板开始",
 		container.NewHBox(newBtn, templateBtn),
-	))
+	)
 }

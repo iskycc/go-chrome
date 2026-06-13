@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -10,6 +11,68 @@ import (
 
 	"go-chrome/internal/flow"
 )
+
+// flowListItem is a two-line list cell for the flow library: name on top and
+// metadata (description / tags / step count) below.
+type flowListItem struct {
+	widget.BaseWidget
+
+	name           *widget.Label
+	meta           *widget.Label
+	box            *fyne.Container
+	onSecondaryTap func(e *fyne.PointEvent)
+}
+
+func newFlowListItem() *flowListItem {
+	item := &flowListItem{}
+	item.ExtendBaseWidget(item)
+
+	item.name = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	item.name.Truncation = fyne.TextTruncateEllipsis
+
+	item.meta = widget.NewLabel("")
+	item.meta.Truncation = fyne.TextTruncateEllipsis
+
+	item.box = container.NewVBox(item.name, item.meta)
+	return item
+}
+
+func (item *flowListItem) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(item.box)
+}
+
+func (item *flowListItem) TappedSecondary(e *fyne.PointEvent) {
+	if item.onSecondaryTap != nil {
+		item.onSecondaryTap(e)
+	}
+}
+
+func (item *flowListItem) MinSize() fyne.Size {
+	return item.box.MinSize().Add(fyne.NewSize(0, theme.Padding()))
+}
+
+func (item *flowListItem) setFlow(f *flow.Flow) {
+	item.name.SetText(f.Name)
+	item.meta.SetText(flowMetaText(f))
+}
+
+func flowMetaText(f *flow.Flow) string {
+	parts := []string{}
+
+	desc := strings.TrimSpace(f.Description)
+	if desc != "" {
+		parts = append(parts, desc)
+	} else {
+		parts = append(parts, "无描述")
+	}
+
+	if len(f.Tags) > 0 {
+		parts = append(parts, strings.Join(f.Tags, " · "))
+	}
+
+	parts = append(parts, fmt.Sprintf("%d 个步骤", len(f.Steps)))
+	return strings.Join(parts, " · ")
+}
 
 type flowLibraryPanel struct {
 	app           *App
@@ -29,24 +92,16 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 	p.list = widget.NewList(
 		func() int { return len(p.flows) },
 		func() fyne.CanvasObject {
-			// Truncating label so long flow names + tags get
-			// visually clipped with "…" instead of overflowing
-			// the left panel's width.
-			return newContextMenuLabel("Flow Name", nil)
+			return newFlowListItem()
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			if id < 0 || id >= len(p.flows) {
 				return
 			}
 			f := p.flows[id]
-			name := f.Name
-			tags := ""
-			if len(f.Tags) > 0 {
-				tags = " [" + strings.Join(f.Tags, ", ") + "]"
-			}
-			label := item.(*contextMenuLabel)
-			label.SetText(name + tags)
-			label.onSecondaryTap = func(e *fyne.PointEvent) {
+			cell := item.(*flowListItem)
+			cell.setFlow(f)
+			cell.onSecondaryTap = func(e *fyne.PointEvent) {
 				p.showFlowContextMenu(int(id), e)
 			}
 		},
@@ -72,8 +127,7 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 
 	newBtn := widget.NewButtonWithIcon("新建", theme.ContentAddIcon(), func() { p.app.createNewFlow() })
 	newBtn.Importance = widget.HighImportance
-	saveBtn := widget.NewButtonWithIcon("保存", theme.DocumentSaveIcon(), func() { p.app.saveCurrentFlow() })
-	saveBtn.Importance = widget.MediumImportance
+
 	var moreBtn *widget.Button
 	moreBtn = widget.NewButtonWithIcon("更多", theme.MoreHorizontalIcon(), func() {
 		hasSelection := p.selectedIndex >= 0 && p.selectedIndex < len(p.flows)
@@ -104,13 +158,13 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 		widget.ShowPopUpMenuAtRelativePosition(menu, p.app.mainWin.Canvas(), fyne.NewPos(0, moreBtn.Size().Height), moreBtn)
 	})
 
+	top := container.NewVBox(
+		newSectionHeader("流程库", newBtn, moreBtn),
+		container.NewHBox(p.search, p.tagFilter),
+	)
+
 	p.widget = container.NewBorder(
-		container.NewVBox(
-			widget.NewLabelWithStyle("流程库", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			p.search,
-			p.tagFilter,
-			container.NewHBox(newBtn, saveBtn, moreBtn),
-		),
+		top,
 		nil, nil, nil,
 		p.list,
 	)

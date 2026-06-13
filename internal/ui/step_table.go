@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
@@ -13,17 +15,78 @@ import (
 	"go-chrome/internal/runner"
 )
 
+// stepTableCell is a reusable table cell that can show either plain text or a
+// colored status badge. It preserves the right-click context menu behaviour of
+// contextMenuLabel.
+type stepTableCell struct {
+	widget.BaseWidget
+
+	label          *widget.Label
+	dot            *canvas.Circle
+	dotBox         fyne.CanvasObject
+	box            *fyne.Container
+	onSecondaryTap func(e *fyne.PointEvent)
+}
+
+func newStepTableCell() *stepTableCell {
+	c := &stepTableCell{}
+	c.ExtendBaseWidget(c)
+
+	c.label = widget.NewLabel("")
+	c.label.Truncation = fyne.TextTruncateEllipsis
+
+	c.dot = canvas.NewCircle(color.Transparent)
+	c.dotBox = container.NewGridWrap(fyne.NewSize(8, 8), c.dot)
+	c.dotBox.Hide()
+
+	c.box = container.NewHBox(c.dotBox, c.label)
+	return c
+}
+
+func (c *stepTableCell) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(c.box)
+}
+
+func (c *stepTableCell) TappedSecondary(e *fyne.PointEvent) {
+	if c.onSecondaryTap != nil {
+		c.onSecondaryTap(e)
+	}
+}
+
+func (c *stepTableCell) setText(text string) {
+	c.label.SetText(text)
+}
+
+func (c *stepTableCell) setDotColor(clr color.Color) {
+	if clr == nil {
+		c.dotBox.Hide()
+		return
+	}
+	c.dot.FillColor = clr
+	c.dotBox.Show()
+}
+
+func (c *stepTableCell) setItalic(italic bool) {
+	c.label.TextStyle = fyne.TextStyle{Italic: italic}
+	c.label.Refresh()
+}
+
 type stepTablePanel struct {
 	app           *App
 	currentFlow   *flow.Flow
 	stepsData     []flow.Step
 	widget        fyne.CanvasObject
 	table         *widget.Table
+	emptyState    fyne.CanvasObject
+	tableArea     *fyne.Container
 	selected      int
 	statuses      []runner.Status
 	selectedBar   *fyne.Container
 	onStepChanged func()
 }
+
+var stepTableHeaders = []string{"#", "状态", "启用", "步骤名称", "类型", "目标", "输入/期望", "等待", "失败处理"}
+var stepTableWidths = []float32{44, 72, 56, 180, 120, 260, 220, 80, 110}
 
 func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
 	p := &stepTablePanel{app: app, selected: -1, onStepChanged: onStepChanged}
@@ -31,29 +94,48 @@ func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
 
 	addBtn := widget.NewButtonWithIcon("新增步骤", theme.ContentAddIcon(), func() { p.showAddStepDialog() })
 	addBtn.Importance = widget.HighImportance
+
 	copyBtn := widget.NewButtonWithIcon("复制", theme.ContentCopyIcon(), func() { p.copyStep() })
-	delBtn := widget.NewButtonWithIcon("删除", theme.DeleteIcon(), func() { p.deleteStep() })
-	delBtn.Importance = widget.DangerImportance
+	copyBtn.Importance = widget.MediumImportance
 	upBtn := widget.NewButtonWithIcon("上移", theme.MoveUpIcon(), func() { p.moveStep(-1) })
 	downBtn := widget.NewButtonWithIcon("下移", theme.MoveDownIcon(), func() { p.moveStep(1) })
-	p.selectedBar = container.NewHBox(widget.NewLabel("选中步骤："), copyBtn, delBtn, upBtn, downBtn)
+	delBtn := widget.NewButtonWithIcon("删除", theme.DeleteIcon(), func() { p.confirmDeleteStep() })
+	delBtn.Importance = widget.DangerImportance
+
+	p.selectedBar = container.NewHBox(
+		newMutedText("已选中第 -- 步"),
+		copyBtn,
+		upBtn,
+		downBtn,
+		delBtn,
+	)
 	p.selectedBar.Hide()
+	p.updateSelectedLabel()
+
+	addBtnEmpty := widget.NewButtonWithIcon("新增步骤", theme.ContentAddIcon(), func() { p.showAddStepDialog() })
+	addBtnEmpty.Importance = widget.HighImportance
+	p.emptyState = newEmptyState(
+		"当前流程暂无步骤",
+		"点击「新增步骤」开始编排",
+		addBtnEmpty,
+	)
+	p.tableArea = container.NewStack(p.table, p.emptyState)
+	p.updateTableVisibility()
 
 	p.widget = container.NewBorder(
 		container.NewVBox(
-			widget.NewLabelWithStyle("步骤编排", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			container.NewHBox(addBtn),
+			newSectionHeader("步骤编排", addBtn),
 			p.selectedBar,
 		),
 		nil, nil, nil,
-		p.table,
+		p.tableArea,
 	)
 	return p
 }
 
 func (p *stepTablePanel) initTable() {
-	cols := 9
-	p.table = widget.NewTable(
+	cols := len(stepTableHeaders)
+	p.table = widget.NewTableWithHeaders(
 		func() (int, int) {
 			if p.currentFlow == nil {
 				return 0, cols
@@ -61,61 +143,80 @@ func (p *stepTablePanel) initTable() {
 			return len(p.stepsData), cols
 		},
 		func() fyne.CanvasObject {
-			// Truncating label so long step names, XPaths, and
-			// input text get visually clipped with "…" instead
-			// of drawing past the column width.
-			return newContextMenuLabel("cell", nil)
+			return newStepTableCell()
 		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
-			label := cell.(*contextMenuLabel)
+			c := cell.(*stepTableCell)
 			if id.Row < 0 || id.Row >= len(p.stepsData) {
-				label.SetText("")
-				label.onSecondaryTap = nil
+				c.setText("")
+				c.setDotColor(nil)
+				c.onSecondaryTap = nil
 				return
 			}
 			s := p.stepsData[id.Row]
+			disabled := !s.Enabled
+
 			switch id.Col {
 			case 0:
-				label.SetText(fmt.Sprintf("%d", id.Row+1))
+				c.setText(fmt.Sprintf("%d", id.Row+1))
+				c.setDotColor(nil)
 			case 1:
-				if id.Row < len(p.statuses) {
-					label.SetText(statusIcon(p.statuses[id.Row]))
-				} else {
-					label.SetText("")
-				}
+				c.setText(statusText(p.statusForRow(id.Row)))
+				c.setDotColor(statusColor(p.statusForRow(id.Row)))
 			case 2:
 				if s.Enabled {
-					label.SetText("✓")
+					c.setText("启用")
 				} else {
-					label.SetText("")
+					c.setText("停用")
 				}
+				c.setDotColor(nil)
 			case 3:
-				label.SetText(s.Name)
+				c.setText(s.Name)
+				c.setDotColor(nil)
 			case 4:
-				label.SetText(stepTypeLabel(s.Type))
+				c.setText(stepTypeLabel(s.Type))
+				c.setDotColor(nil)
 			case 5:
-				label.SetText(s.Target.Value)
+				c.setText(s.Target.Value)
+				c.setDotColor(nil)
 			case 6:
 				if s.Input.MaskInLogs {
-					label.SetText("***")
+					c.setText("***")
 				} else {
-					label.SetText(s.Input.Text)
+					c.setText(s.Input.Text)
 				}
+				c.setDotColor(nil)
 			case 7:
-				label.SetText(fmt.Sprintf("%dms", s.WaitAfterMs))
+				c.setText(fmt.Sprintf("%dms", s.WaitAfterMs))
+				c.setDotColor(nil)
 			case 8:
-				label.SetText(errorPolicyLabel(s.OnError))
+				c.setText(errorPolicyLabel(s.OnError))
+				c.setDotColor(nil)
 			}
-			if !s.Enabled {
-				label.TextStyle = fyne.TextStyle{Italic: true}
-			} else {
-				label.TextStyle = fyne.TextStyle{}
-			}
-			label.onSecondaryTap = func(e *fyne.PointEvent) {
+			c.setItalic(disabled)
+			c.onSecondaryTap = func(e *fyne.PointEvent) {
 				p.showStepContextMenu(id.Row, e)
 			}
 		},
 	)
+	p.table.CreateHeader = func() fyne.CanvasObject {
+		l := widget.NewLabel("header")
+		l.TextStyle = fyne.TextStyle{Bold: true}
+		l.Truncation = fyne.TextTruncateEllipsis
+		return l
+	}
+	p.table.UpdateHeader = func(id widget.TableCellID, cell fyne.CanvasObject) {
+		l := cell.(*widget.Label)
+		if id.Row == -1 && id.Col >= 0 && id.Col < len(stepTableHeaders) {
+			l.SetText(stepTableHeaders[id.Col])
+		} else {
+			l.SetText("")
+		}
+	}
+	for i, w := range stepTableWidths {
+		p.table.SetColumnWidth(i, w)
+	}
+	p.table.ShowHeaderColumn = false
 	p.table.OnSelected = func(id widget.TableCellID) {
 		if id.Row < 0 || id.Row >= len(p.stepsData) {
 			return
@@ -124,29 +225,55 @@ func (p *stepTablePanel) initTable() {
 		p.updateSelectedActions()
 		p.app.onStepSelected(&p.stepsData[id.Row], id.Row)
 	}
-	p.table.SetColumnWidth(0, 40)
-	p.table.SetColumnWidth(1, 40)
-	p.table.SetColumnWidth(2, 40)
-	p.table.SetColumnWidth(3, 120)
-	p.table.SetColumnWidth(4, 100)
-	p.table.SetColumnWidth(5, 140)
-	p.table.SetColumnWidth(6, 140)
-	p.table.SetColumnWidth(7, 60)
-	p.table.SetColumnWidth(8, 80)
 }
 
-func statusIcon(st runner.Status) string {
+func (p *stepTablePanel) statusForRow(row int) runner.Status {
+	if row < 0 || row >= len(p.statuses) {
+		return runner.StatusPending
+	}
+	return p.statuses[row]
+}
+
+func statusText(st runner.Status) string {
 	switch st {
 	case runner.StatusRunning:
-		return "●"
+		return "运行中"
 	case runner.StatusSuccess:
-		return "✓"
+		return "成功"
 	case runner.StatusFailed:
-		return "✗"
+		return "失败"
 	case runner.StatusSkipped:
-		return "−"
+		return "跳过"
 	default:
 		return ""
+	}
+}
+
+func statusColor(st runner.Status) color.Color {
+	switch st {
+	case runner.StatusRunning:
+		return uiColorInfo()
+	case runner.StatusSuccess:
+		return uiColorSuccess()
+	case runner.StatusFailed:
+		return uiColorDanger()
+	case runner.StatusSkipped:
+		return uiColorMutedText()
+	default:
+		return nil
+	}
+}
+
+func (p *stepTablePanel) updateTableVisibility() {
+	if p.tableArea == nil || p.emptyState == nil {
+		return
+	}
+	if len(p.stepsData) == 0 {
+		p.table.Hide()
+		p.emptyState.Show()
+	} else {
+		p.emptyState.Hide()
+		p.table.Show()
 	}
 }
 
@@ -160,6 +287,7 @@ func (p *stepTablePanel) loadFlow(f *flow.Flow) {
 	p.selected = -1
 	p.statuses = nil
 	p.updateSelectedActions()
+	p.updateTableVisibility()
 	p.table.Refresh()
 }
 
@@ -189,6 +317,7 @@ func (p *stepTablePanel) showAddStepDialog() {
 			}
 			p.stepsData = append(p.stepsData[:idx], append([]flow.Step{newStep}, p.stepsData[idx:]...)...)
 			p.currentFlow.Steps = p.stepsData
+			p.updateTableVisibility()
 			p.table.Refresh()
 			p.table.Select(widget.TableCellID{Row: idx, Col: 0})
 			p.fireChanged()
@@ -207,6 +336,7 @@ func (p *stepTablePanel) deleteStep() {
 	p.currentFlow.Steps = p.stepsData
 	p.selected = -1
 	p.updateSelectedActions()
+	p.updateTableVisibility()
 	p.table.UnselectAll()
 	p.table.Refresh()
 	p.app.onStepSelected(nil, -1)
@@ -232,10 +362,26 @@ func (p *stepTablePanel) updateSelectedActions() {
 	if p.selectedBar == nil {
 		return
 	}
+	p.updateSelectedLabel()
 	if p.currentFlow != nil && p.selected >= 0 && p.selected < len(p.stepsData) {
 		p.selectedBar.Show()
 	} else {
 		p.selectedBar.Hide()
+	}
+}
+
+func (p *stepTablePanel) updateSelectedLabel() {
+	if p.selectedBar == nil {
+		return
+	}
+	labelObj := p.selectedBar.Objects[0]
+	if text, ok := labelObj.(*canvas.Text); ok {
+		if p.selected >= 0 {
+			text.Text = fmt.Sprintf("已选中第 %d 步", p.selected+1)
+		} else {
+			text.Text = "已选中第 -- 步"
+		}
+		text.Refresh()
 	}
 }
 
@@ -247,6 +393,7 @@ func (p *stepTablePanel) copyStep() {
 	copied.ID = ""
 	p.stepsData = append(p.stepsData[:p.selected+1], append([]flow.Step{copied}, p.stepsData[p.selected+1:]...)...)
 	p.currentFlow.Steps = p.stepsData
+	p.updateTableVisibility()
 	p.table.Refresh()
 	p.fireChanged()
 }

@@ -9,10 +9,75 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"go-chrome/internal/runner"
 )
+
+// historyListItem is a two-line record for a single run.
+type historyListItem struct {
+	widget.BaseWidget
+
+	primary *widget.Label
+	meta    *widget.Label
+	box     *fyne.Container
+
+	onSecondaryTap func(e *fyne.PointEvent)
+}
+
+func newHistoryListItem() *historyListItem {
+	item := &historyListItem{}
+	item.ExtendBaseWidget(item)
+
+	item.primary = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	item.primary.Truncation = fyne.TextTruncateEllipsis
+
+	item.meta = widget.NewLabel("")
+	item.meta.Truncation = fyne.TextTruncateEllipsis
+
+	item.box = container.NewVBox(item.primary, item.meta)
+	return item
+}
+
+func (item *historyListItem) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(item.box)
+}
+
+func (item *historyListItem) TappedSecondary(e *fyne.PointEvent) {
+	if item.onSecondaryTap != nil {
+		item.onSecondaryTap(e)
+	}
+}
+
+func (item *historyListItem) MinSize() fyne.Size {
+	return item.box.MinSize().Add(fyne.NewSize(0, theme.Padding()))
+}
+
+func (item *historyListItem) setResult(r *runner.RunResult, envName string) {
+	elapsed := r.FinishedAt.Sub(r.StartedAt).Seconds()
+	statusText, _ := historyStatusInfo(r.Status)
+	item.primary.SetText(fmt.Sprintf("%s · %s · %.1fs", statusText, r.StartedAt.Format("2006-01-02 15:04:05"), elapsed))
+
+	envPart := envName
+	if envPart == "" {
+		envPart = "默认环境"
+	}
+	item.meta.SetText(fmt.Sprintf("环境：%s · 成功 %d / 失败 %d / 跳过 %d", envPart, r.SuccessCount, r.FailedCount, r.SkippedCount))
+}
+
+func historyStatusInfo(status runner.Status) (string, statusKind) {
+	switch status {
+	case runner.StatusSuccess:
+		return "成功", statusSuccess
+	case runner.StatusFailed:
+		return "失败", statusDanger
+	case runner.StatusRunning:
+		return "运行中", statusInfo
+	default:
+		return string(status), statusMuted
+	}
+}
 
 // historyPanel shows run history for the current flow.
 type historyPanel struct {
@@ -23,6 +88,7 @@ type historyPanel struct {
 	envSelect    *widget.Select
 	statusSelect *widget.Select
 	envIDsByName map[string]string
+	emptyState   fyne.CanvasObject
 }
 
 func newHistoryPanel(app *App) *historyPanel {
@@ -39,39 +105,68 @@ func newHistoryPanel(app *App) *historyPanel {
 	p.list = widget.NewList(
 		func() int { return len(p.results) },
 		func() fyne.CanvasObject {
-			return newContextMenuLabel("历史记录", nil)
+			return newHistoryListItem()
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			if id < 0 || id >= len(p.results) {
 				return
 			}
 			r := p.results[id]
-			label := fmt.Sprintf("%s | %s | 成功:%d 失败:%d",
-				r.StartedAt.Format("01-02 15:04:05"),
-				r.Status,
-				r.SuccessCount, r.FailedCount)
-			l := item.(*contextMenuLabel)
-			l.SetText(label)
-			l.onSecondaryTap = func(e *fyne.PointEvent) {
+			cell := item.(*historyListItem)
+			cell.setResult(r, p.envNameFor(r.EnvironmentID))
+			cell.onSecondaryTap = func(e *fyne.PointEvent) {
 				p.showHistoryContextMenu(int(id), e)
 			}
 		},
 	)
+
+	p.emptyState = newEmptyState(
+		"暂无执行历史",
+		"运行当前流程后将生成历史记录",
+		nil,
+	)
+
+	filters := container.NewHBox(
+		newMutedText("环境"),
+		p.envSelect,
+		newMutedText("状态"),
+		p.statusSelect,
+	)
+
+	content := container.NewStack(p.list, p.emptyState)
 	p.widget = container.NewBorder(
 		container.NewVBox(
-			widget.NewLabelWithStyle("执行历史", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			container.NewHBox(widget.NewLabel("环境"), p.envSelect, widget.NewLabel("状态"), p.statusSelect),
+			newSectionHeader("执行历史"),
+			filters,
 		),
 		nil, nil, nil,
-		container.NewScroll(p.list),
+		content,
 	)
 	return p
+}
+
+func (p *historyPanel) envNameFor(envID string) string {
+	if p.app.envRepo == nil || envID == "" {
+		return ""
+	}
+	env, err := p.app.envRepo.Get(envID)
+	if err != nil {
+		return ""
+	}
+	return env.Name
 }
 
 func (p *historyPanel) setResults(results []*runner.RunResult) {
 	fyne.Do(func() {
 		p.results = results
 		p.list.Refresh()
+		if len(p.results) == 0 {
+			p.emptyState.Show()
+			p.list.Hide()
+		} else {
+			p.emptyState.Hide()
+			p.list.Show()
+		}
 	})
 }
 
@@ -110,15 +205,14 @@ func (p *historyPanel) showHistoryContextMenu(idx int, e *fyne.PointEvent) {
 	p.list.Select(idx)
 	r := p.results[idx]
 
+	elapsed := r.FinishedAt.Sub(r.StartedAt).Seconds()
 	detailItem := fyne.NewMenuItem("查看详情", func() {
-		elapsed := r.FinishedAt.Sub(r.StartedAt).Seconds()
 		msg := fmt.Sprintf("运行 ID：%s\n状态：%s\n成功：%d  失败：%d  跳过：%d\n总耗时：%.1fs\n开始时间：%s",
 			r.ID, r.Status, r.SuccessCount, r.FailedCount, r.SkippedCount, elapsed,
 			r.StartedAt.Format("2006-01-02 15:04:05"))
 		dialog.ShowInformation("运行详情", msg, p.app.mainWin)
 	})
 	copySummaryItem := fyne.NewMenuItem("复制运行摘要", func() {
-		elapsed := r.FinishedAt.Sub(r.StartedAt).Seconds()
 		summary := fmt.Sprintf("%s | %s | 成功:%d 失败:%d 跳过:%d | %.1fs",
 			r.StartedAt.Format("2006-01-02 15:04:05"), r.Status,
 			r.SuccessCount, r.FailedCount, r.SkippedCount, elapsed)
