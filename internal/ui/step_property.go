@@ -70,15 +70,15 @@ type stepPropertyPanel struct {
 	noteEntry       *widget.Entry
 	previewLabel    *widget.Label
 
-	basicSection   *stepSection
-	targetSection  *stepSection
-	inputSection   *stepSection
+	basicSection    *stepSection
+	targetSection   *stepSection
+	inputSection    *stepSection
 	expectedSection *stepSection
-	waitSection    *stepSection
-	errorSection   *stepSection
-	noteSection    *stepSection
+	waitSection     *stepSection
+	errorSection    *stepSection
+	noteSection     *stepSection
 
-	applyBtn        *widget.Button
+	applyBtn         *widget.Button
 	applyStatusLabel *widget.Label
 }
 
@@ -222,7 +222,10 @@ func (p *stepPropertyPanel) initSections() {
 		}
 	})
 
-	templateToolbar := container.NewHBox(insertTemplateSelect, previewBtn, validateBtn)
+	templateToolbar := container.NewVBox(
+		insertTemplateSelect,
+		container.NewHBox(previewBtn, validateBtn),
+	)
 	previewBox := container.NewGridWrap(fyne.NewSize(280, 64), p.previewLabel)
 
 	p.inputSection = newStepSection("输入与模板",

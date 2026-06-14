@@ -20,6 +20,7 @@ func newContextMenuLabel(text string, onSecondaryTap func(e *fyne.PointEvent)) *
 	l.ExtendBaseWidget(l)
 	l.Text = text
 	l.Truncation = fyne.TextTruncateEllipsis
+	l.Wrapping = fyne.TextWrapOff
 	return l
 }
 

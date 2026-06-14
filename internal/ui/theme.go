@@ -54,7 +54,8 @@ func (a *appTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) co
 		if isDark {
 			return color.NRGBA{R: 0x1e, G: 0x3a, B: 0x5f, A: 0xff}
 		}
-		return color.NRGBA{R: 0xbb, G: 0xde, B: 0xfb, A: 0xff}
+		// 更淡的选中色，降低列表选中态的视觉重量。
+		return color.NRGBA{R: 0xdb, G: 0xea, B: 0xff, A: 0xff}
 	case theme.ColorNameInputBackground:
 		if isDark {
 			return color.NRGBA{R: 0x20, G: 0x24, B: 0x2c, A: 0xff}
@@ -64,12 +65,14 @@ func (a *appTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) co
 		if isDark {
 			return color.NRGBA{R: 0x3e, G: 0x47, B: 0x55, A: 0xff}
 		}
-		return color.NRGBA{R: 0xbd, G: 0xc3, B: 0xcc, A: 0xff}
+		// 更浅的滚动条/分栏拖拽条颜色，降低 Split 分隔线存在感。
+		return color.NRGBA{R: 0xd6, G: 0xdc, B: 0xe5, A: 0xff}
 	case theme.ColorNameSeparator:
 		if isDark {
 			return color.NRGBA{R: 0x3a, G: 0x42, B: 0x4d, A: 0xff}
 		}
-		return color.NRGBA{R: 0xe2, G: 0xe8, B: 0xf0, A: 0xff}
+		// 更浅的分隔色，减轻 Tab 下边界与 Split 线的视觉重量。
+		return color.NRGBA{R: 0xe8, G: 0xee, B: 0xf6, A: 0xff}
 	case theme.ColorNamePlaceHolder:
 		if isDark {
 			return color.NRGBA{R: 0x7d, G: 0x86, B: 0x94, A: 0xff}

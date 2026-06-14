@@ -93,7 +93,7 @@ func newCurrentStepLabel() *currentStepLabel {
 	c.step = widget.NewLabel("")
 	c.step.Wrapping = fyne.TextWrapOff
 	c.step.Truncation = fyne.TextTruncateEllipsis
-	stepBox := container.NewGridWrap(fyne.NewSize(360, c.step.MinSize().Height), c.step)
+	stepBox := container.NewGridWrap(fyne.NewSize(180, c.step.MinSize().Height), c.step)
 	c.box = container.NewHBox(prefix, stepBox)
 	return c
 }

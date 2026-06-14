@@ -568,3 +568,264 @@ ok  go-chrome/internal/db       1.439s
 - [x] 全局工具栏和运行详情页进度文字均使用固定宽度容器
 - [x] 修复"当前步骤" label，前缀固定、步骤名可截断
 - [x] 产物路径 label 支持右键复制路径和打开产物目录
+
+## 自签名证书与 HTTPS 本地站点验证方案
+
+### 结论
+
+当前程序启动的托管 Chrome 已默认携带忽略证书错误的参数，可正常访问自签名 HTTPS 站点：
+
+- `--ignore-certificate-errors`
+- `--allow-insecure-localhost`
+
+相关代码位于 `internal/browser/launcher.go` 的 `buildLaunchArgs()`：
+
+```go
+args := []string{
+    fmt.Sprintf("--remote-debugging-port=%d", port),
+    ...
+    "--incognito",
+    "--start-maximized",
+    "--ignore-certificate-errors",
+    "--allow-insecure-localhost",
+}
+```
+
+### 验证方案
+
+#### 方案 A：使用 Python 一键启动自签名 HTTPS 服务器（推荐）
+
+**前置条件**：Windows 上已安装 Python 3.x。
+
+**步骤 1：生成自签名证书**
+
+在工程目录打开 PowerShell：
+
+```powershell
+openssl req -x509 -newkey rsa:2048 -keyout test-selfsigned.key -out test-selfsigned.crt -days 1 -nodes -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+```
+
+如果没有 OpenSSL，可用 Python 脚本生成：
+
+```powershell
+python - <<'PY'
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from datetime import datetime, timedelta
+import ipaddress
+
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+cert = (
+    x509.CertificateBuilder()
+    .subject_name(subject)
+    .issuer_name(issuer)
+    .public_key(key.public_key())
+    .serial_number(x509.random_serial_number())
+    .not_valid_before(datetime.utcnow())
+    .not_valid_after(datetime.utcnow() + timedelta(days=1))
+    .add_extension(
+        x509.SubjectAlternativeName([
+            x509.DNSName("localhost"),
+            x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+        ]),
+        critical=False,
+    )
+    .sign(key, hashes.SHA256())
+)
+open("test-selfsigned.crt", "wb").write(cert.public_bytes(serialization.Encoding.PEM))
+open("test-selfsigned.key", "wb").write(key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.TraditionalOpenSSL,
+    encryption_algorithm=serialization.NoEncryption(),
+))
+print("Certificate generated: test-selfsigned.crt, test-selfsigned.key")
+PY
+```
+
+**步骤 2：启动 HTTPS 测试服务器**
+
+```powershell
+python - <<'PY'
+import ssl, http.server, socketserver
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain('test-selfsigned.crt', 'test-selfsigned.key')
+with socketserver.TCPServer(('127.0.0.1', 18443), http.server.SimpleHTTPRequestHandler) as httpd:
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    print("Serving HTTPS on https://127.0.0.1:18443")
+    httpd.serve_forever()
+PY
+```
+
+在同一目录准备一个 `index.html`：
+
+```html
+<!doctype html>
+<title>Self-signed HTTPS Test</title>
+<h1>OK: self-signed HTTPS loaded successfully</h1>
+```
+
+**步骤 3：在 go-chrome 中验证**
+
+1. 启动 `go-chrome.exe`。
+2. 新建或打开一个流程。
+3. 添加步骤：
+   - 步骤 1：打开网址 `https://127.0.0.1:18443/`
+   - 步骤 2：断言元素存在（或截图）验证页面显示 `OK: self-signed HTTPS loaded successfully`
+4. 点击“运行”。
+
+**期望结果**：
+
+- 流程运行成功。
+- 页面正常加载，未出现 Chrome 的 `NET::ERR_CERT_AUTHORITY_INVALID` 拦截页。
+- 如启用截图，截图中能看到 `OK` 文案。
+
+**对照实验**：
+
+临时修改 `internal/browser/launcher.go`，注释掉以下两行后重新编译：
+
+```go
+// "--ignore-certificate-errors",
+// "--allow-insecure-localhost",
+```
+
+再次运行同一流程，应出现：
+
+- Chrome 显示 `您的连接不是私密连接` / `NET::ERR_CERT_AUTHORITY_INVALID`。
+- 后续断言/截图步骤失败。
+
+验证完成后请恢复这两个参数。
+
+#### 方案 B：使用 Go 编写的最小 HTTPS 服务器
+
+在 `cmd/test-server` 同目录新建 `cmd/https-selfsigned-server/main.go`：
+
+```go
+package main
+
+import (
+    "crypto/rand"
+    "crypto/rsa"
+    "crypto/tls"
+    "crypto/x509"
+    "crypto/x509/pkix"
+    "encoding/pem"
+    "fmt"
+    "log"
+    "math/big"
+    "net"
+    "net/http"
+    "time"
+)
+
+func main() {
+    key, _ := rsa.GenerateKey(rand.Reader, 2048)
+    tpl := x509.Certificate{
+        SerialNumber: big.NewInt(1),
+        Subject:      pkix.Name{CommonName: "localhost"},
+        NotBefore:    time.Now(),
+        NotAfter:     time.Now().Add(24 * time.Hour),
+        KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+        ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+        IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+        DNSNames:     []string{"localhost"},
+    }
+    certDER, _ := x509.CreateCertificate(rand.Reader, &tpl, &tpl, &key.PublicKey, key)
+    certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+    keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+    cert, _ := tls.X509KeyPair(certPEM, keyPEM)
+
+    srv := &http.Server{
+        Addr: ":18443",
+        TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+        Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            fmt.Fprint(w, "<h1>OK: self-signed HTTPS loaded successfully</h1>")
+        }),
+    }
+    log.Println("Serving HTTPS on https://127.0.0.1:18443")
+    log.Fatal(srv.ListenAndServeTLS("", ""))
+}
+```
+
+运行：
+
+```bash
+go run ./cmd/https-selfsigned-server
+```
+
+然后在 go-chrome 流程中访问 `https://127.0.0.1:18443/` 并运行。
+
+#### 方案 C：使用外部工具 BadSSL（可选，需要联网）
+
+如果允许联网，可直接访问 `https://self-signed.badssl.com/`。
+
+- 带 `--ignore-certificate-errors` 时：页面应正常加载。
+- 不带该参数时：Chrome 会拦截并显示证书错误。
+
+> 注意：BadSSL 是公共测试站点，仅在可联网的验证环境中使用，不要用于生产流程。
+
+### 自动化验证脚本（PowerShell）
+
+将以下脚本保存为 `scripts/verify-selfsigned-https.ps1`，可在 CI 或发布前执行：
+
+```powershell
+#requires -Version 5.1
+$ErrorActionPreference = "Stop"
+$port = 18443
+$cert = "test-selfsigned.crt"
+$key = "test-selfsigned.key"
+
+# 1. 生成证书
+if (!(Test-Path $cert)) {
+    if (Get-Command openssl -ErrorAction SilentlyContinue) {
+        openssl req -x509 -newkey rsa:2048 -keyout $key -out $cert -days 1 -nodes -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+    } else {
+        Write-Error "OpenSSL not found. Install OpenSSL or use Python cryptography to generate the certificate."
+    }
+}
+
+# 2. 启动最小 HTTPS 服务器（使用 Python）
+$serverScript = @"
+import ssl, http.server, socketserver
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain('$cert', '$key')
+class H(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'<h1>OK: self-signed HTTPS loaded successfully</h1>')
+with socketserver.TCPServer(('127.0.0.1', $port), H) as httpd:
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    httpd.serve_forever()
+"@
+$server = Start-Process python -ArgumentList "-c", $serverScript -PassThru -WindowStyle Hidden
+Start-Sleep -Seconds 2
+
+try {
+    # 3. 使用托管 Chrome 验证（前提：Chrome 已启动并监听 remote-debugging-port）
+    $list = Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/list" -UseBasicParsing -ErrorAction Stop
+    $page = $list | Where-Object { $_.type -eq "page" } | Select-Object -First 1
+    if (!$page) { throw "No page target found" }
+
+    $ws = New-Object Net.WebSockets.ClientWebSocket
+    $ws.ConnectAsync($page.webSocketDebuggerUrl, [System.Threading.CancellationToken]::None).Wait()
+
+    $navigate = '{"id":1,"method":"Page.navigate","params":{"url":"https://127.0.0.1:18443/"}}' | ConvertTo-Json -Compress
+    # 实际发送需要使用 WebSocket 客户端库，此处仅示意
+    Write-Host "Navigate sent. Verify page content manually or via screenshot in go-chrome."
+} finally {
+    Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+}
+```
+
+> 脚本中 CDP WebSocket 部分建议替换为 `chromedp` 或 `puppeteer` 等成熟库，避免手写协议。
+
+### 注意事项
+
+1. `--ignore-certificate-errors` 会忽略**所有**证书错误，包括过期、域名不匹配、自签名等。仅在自动化测试场景使用，不要用于生产浏览器配置。
+2. `--allow-insecure-localhost` 专门放宽 `localhost` / `127.0.0.1` 的证书校验，与 `--ignore-certificate-errors` 配合使用。
+3. 这两个参数仅影响本程序拉起的托管 Chrome 实例，不会影响用户系统已安装的 Chrome。
+4. 如果目标网站使用 HSTS 预加载列表中的域名，即使加了 `--ignore-certificate-errors`，某些版本的 Chrome 仍可能拦截。本地 `127.0.0.1` 不受 HSTS 影响。
+5. 验证完成后，请删除临时证书文件 `test-selfsigned.crt`、`test-selfsigned.key`，避免过期证书残留。

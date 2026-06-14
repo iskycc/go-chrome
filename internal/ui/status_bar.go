@@ -125,10 +125,9 @@ func newStatusBar(app *App) *statusBar {
 	itemSpacer := canvas.NewRectangle(color.Transparent)
 	itemSpacer.SetMinSize(fyne.NewSize(16, 1))
 
+	// 当前流程信息由工具栏下拉统一展示，状态栏只保留系统状态。
 	sb.widget = container.NewHBox(
 		title,
-		itemSpacer,
-		sb.flow.row,
 		itemSpacer,
 		sb.save.row,
 		itemSpacer,

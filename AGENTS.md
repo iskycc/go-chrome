@@ -27,6 +27,27 @@
 - 不要把流程运行时生成的 input 明文无条件写入日志；尊重 `maskInLogs` 和配置默认值。
 - 不要把 `data/`、`logs/`、`chrome/`、构建产物提交进版本库。
 
+## 运行环境兼容性
+
+目标平台：
+
+- Windows 10（最低版本，所有发行版）
+- Windows Server 2016 **Desktop Experience**（Server Core 不带 GUI，无法运行 Fyne 应用）
+
+关键依赖的最低系统要求：
+
+- Go 1.26：官方支持 Windows 10 / Server 2016。
+- Fyne v2.7.4：支持 Windows 7+，需要桌面体验和 OpenGL/DirectX 图形驱动。
+- chromedp v0.15.1：纯 Go，通过 Chrome DevTools Protocol 通信，无额外 Windows 版本限制。
+- gopsutil v3.24.5：进程信息通过 Windows WMI / PDH 获取，需要 WMI 服务运行（Server 2016 默认启用）。
+- `taskkill /F /T /PID`：Windows XP+ 可用，用于关闭托管 Chrome 进程树。
+- `build.bat` 使用 PowerShell 5.1 语法（Windows 10 / Server 2016 默认内置），`Invoke-WebRequest` / `Expand-Archive` 要求 PowerShell 3.0+。
+
+已知限制：
+
+- Windows Server 2016 Server Core（无桌面体验）缺少 Fyne 所需的 GUI 子系统，无法运行本程序。
+- Windows Server 2016 默认安全策略可能阻止未签名可执行文件或限制网络下载，首次运行 `build.bat` 下载 Go SDK / 字体时需要管理员权限或相应安全策略放行。
+
 ## 构建
 
 构建脚本要求：

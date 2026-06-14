@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
@@ -47,15 +49,20 @@ func newFlowEditorPanel(app *App, onChanged func()) *flowEditorPanel {
 		}
 	}
 
+	form := widget.NewForm(
+		widget.NewFormItem("名称", p.nameEntry),
+		widget.NewFormItem("描述", p.descEntry),
+		widget.NewFormItem("标签", p.tagsEntry),
+	)
+	// 标题与表单之间增加轻量间距，让右侧属性区更有层级感。
+	sectionSpacer := canvas.NewRectangle(color.Transparent)
+	sectionSpacer.SetMinSize(fyne.NewSize(1, 12))
+
 	p.widget = container.NewPadded(
-		container.NewBorder(
+		container.NewVBox(
 			newSectionHeader("流程属性"),
-			nil, nil, nil,
-			widget.NewForm(
-				widget.NewFormItem("名称", p.nameEntry),
-				widget.NewFormItem("描述", p.descEntry),
-				widget.NewFormItem("标签", p.tagsEntry),
-			),
+			sectionSpacer,
+			form,
 		),
 	)
 	return p

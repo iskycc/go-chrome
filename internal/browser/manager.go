@@ -333,6 +333,15 @@ func killProcessTree(pid int) error {
 	return nil
 }
 
+// ManagedPID returns the OS process ID of the Chrome instance launched by this
+// manager, or 0 if no managed Chrome is currently running.
+func (m *Manager) ManagedPID() int {
+	if m.proc == nil {
+		return 0
+	}
+	return m.proc.Pid
+}
+
 // Status returns the current Chrome installation/launch status.
 func (m *Manager) Status() ChromeStatus {
 	if m.proc != nil {

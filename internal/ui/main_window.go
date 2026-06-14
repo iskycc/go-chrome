@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -48,6 +49,7 @@ type App struct {
 	historyPanel  *historyPanel
 	settingsPanel *settingsPanel
 	envPanel      *envPanel
+	infoPanel     *infoPanel
 	moduleTabs    *container.AppTabs
 	workspace     *fyne.Container
 	editorArea    fyne.CanvasObject
@@ -169,6 +171,7 @@ func (a *App) buildUI() {
 	a.historyPanel = newHistoryPanel(a)
 	a.settingsPanel = newSettingsPanel(a)
 	a.envPanel = newEnvPanel(a)
+	a.infoPanel = newInfoPanel(a)
 
 	a.editorArea = a.flowEditor.widget
 	a.emptyState = a.buildEmptyState()
@@ -189,10 +192,18 @@ func (a *App) buildUI() {
 		container.NewTabItemWithIcon("历史", theme.HistoryIcon(), a.historyPanel.widget),
 		container.NewTabItemWithIcon("设置", theme.SettingsIcon(), a.settingsPanel.widget),
 		container.NewTabItemWithIcon("运行详情", theme.MediaPlayIcon(), a.runPanel.widget),
+		container.NewTabItemWithIcon("信息", theme.InfoIcon(), a.infoPanel.widget),
 	)
 	a.moduleTabs.SetTabLocation(container.TabLocationTop)
+	a.moduleTabs.OnChanged = func(item *container.TabItem) {
+		if item.Content == a.infoPanel.widget {
+			a.infoPanel.refresh()
+		}
+	}
 
-	topArea := container.NewVBox(
+	// 使用紧凑的垂直布局，减小状态栏与工具栏之间的空隙。
+	topArea := container.New(
+		layout.NewCustomPaddedVBoxLayout(4),
 		a.statusBar.widget,
 		a.globalToolbar.widget,
 	)

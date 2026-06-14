@@ -1,9 +1,10 @@
-// test-server 是一个独立的演示用 HTTP 服务端，用于本地测试 go-chrome 的登录流程。
+// test-server 是一个独立的演示用 HTTP/HTTPS 服务端，用于本地测试 go-chrome 的登录流程。
 // 该文件完全独立，删除 cmd/test-server 目录即可移除所有测试代码，不影响主程序。
 //
 // 使用方法：
 //   go run ./cmd/test-server
-//   然后浏览器访问 http://localhost:8080
+//   HTTP:  http://localhost:18080
+//   HTTPS: https://localhost:18443（自签名证书，Chrome 需忽略证书错误）
 //
 // 预置 XPath（与示例流程一致）：
 //   用户名输入框：//input[@id='username']
@@ -15,25 +16,51 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"html/template"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
-const addr = ":18080"
+const (
+	httpAddr  = ":18080"
+	httpsAddr = ":18443"
+)
 
-// 硬编码演示账号（任意用户名密码均可登录，演示用）
 func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleLoginPage)
-	mux.HandleFunc("/login", handleLogin)
-	mux.HandleFunc("/welcome", handleWelcome)
-	mux.HandleFunc("/logout", handleLogout)
-	mux.HandleFunc("/health", handleHealth)
+	mux := newHandler()
 
-	log.Printf("[test-server] 启动于 http://localhost%s", addr)
+	httpSrv := &http.Server{
+		Addr:         httpAddr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+
+	tlsConfig, err := generateTLSConfig()
+	if err != nil {
+		log.Fatalf("generate self-signed certificate: %v", err)
+	}
+	httpsSrv := &http.Server{
+		Addr:         httpsAddr,
+		Handler:      mux,
+		TLSConfig:    tlsConfig,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+
+	log.Printf("[test-server] HTTP  启动于 http://localhost%s", httpAddr)
+	log.Printf("[test-server] HTTPS 启动于 https://localhost%s（自签名证书）", httpsAddr)
 	log.Printf("[test-server] 预置 XPath:")
 	log.Printf("  用户名: //input[@id='username']")
 	log.Printf("  密码:   //input[@id='password']")
@@ -41,15 +68,73 @@ func main() {
 	log.Printf("  欢迎:   //div[contains(text(),'欢迎')]")
 	log.Printf("  登出:   //button[@id='logout']")
 
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("http server error: %v", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := httpsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("https server error: %v", err)
+		}
+	}()
+
+	wg.Wait()
+}
+
+func newHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", handleLoginPage)
+	mux.HandleFunc("/login", handleLogin)
+	mux.HandleFunc("/welcome", handleWelcome)
+	mux.HandleFunc("/logout", handleLogout)
+	mux.HandleFunc("/health", handleHealth)
+	return mux
+}
+
+// generateTLSConfig creates an in-memory self-signed certificate for
+// localhost/127.0.0.1 so the HTTPS test port works out of the box.
+func generateTLSConfig() (*tls.Config, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("generate key: %w", err)
 	}
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("server error: %v", err)
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		DNSNames:     []string{"localhost"},
 	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, fmt.Errorf("create certificate: %w", err)
+	}
+
+	cert, err := tls.X509KeyPair(
+		encodePEM("CERTIFICATE", certDER),
+		encodePEM("RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load key pair: %w", err)
+	}
+
+	return &tls.Config{Certificates: []tls.Certificate{cert}}, nil
+}
+
+func encodePEM(blockType string, data []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: data})
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {

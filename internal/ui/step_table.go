@@ -22,6 +22,7 @@ type stepTableCell struct {
 	widget.BaseWidget
 
 	label          *widget.Label
+	labelBox       fyne.CanvasObject
 	dot            *canvas.Circle
 	dotBox         fyne.CanvasObject
 	box            *fyne.Container
@@ -34,17 +35,25 @@ func newStepTableCell() *stepTableCell {
 
 	c.label = widget.NewLabel("")
 	c.label.Truncation = fyne.TextTruncateEllipsis
+	c.label.Wrapping = fyne.TextWrapOff
+	c.labelBox = container.NewStack(c.label)
 
 	c.dot = canvas.NewCircle(color.Transparent)
 	c.dotBox = container.NewGridWrap(fyne.NewSize(8, 8), c.dot)
-	c.dotBox.Hide()
 
-	c.box = container.NewHBox(c.dotBox, c.label)
+	// Put the text in Border center so it receives the remaining table-cell
+	// width. HBox only uses child MinSize values, which can shrink an ellipsis
+	// label down to "..." even when the table column itself is wide enough.
+	c.box = container.NewBorder(nil, nil, c.dotBox, nil, c.labelBox)
 	return c
 }
 
 func (c *stepTableCell) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(c.box)
+}
+
+func (c *stepTableCell) MinSize() fyne.Size {
+	return c.box.MinSize()
 }
 
 func (c *stepTableCell) TappedSecondary(e *fyne.PointEvent) {
@@ -55,15 +64,17 @@ func (c *stepTableCell) TappedSecondary(e *fyne.PointEvent) {
 
 func (c *stepTableCell) setText(text string) {
 	c.label.SetText(text)
+	c.label.Refresh()
 }
 
 func (c *stepTableCell) setDotColor(clr color.Color) {
 	if clr == nil {
-		c.dotBox.Hide()
+		c.dot.FillColor = color.Transparent
+		c.dot.Refresh()
 		return
 	}
 	c.dot.FillColor = clr
-	c.dotBox.Show()
+	c.dot.Refresh()
 }
 
 func (c *stepTableCell) setItalic(italic bool) {
@@ -202,7 +213,7 @@ func (p *stepTablePanel) initTable() {
 	p.table.CreateHeader = func() fyne.CanvasObject {
 		l := widget.NewLabel("header")
 		l.TextStyle = fyne.TextStyle{Bold: true}
-		l.Truncation = fyne.TextTruncateEllipsis
+		l.Wrapping = fyne.TextWrapOff
 		return l
 	}
 	p.table.UpdateHeader = func(id widget.TableCellID, cell fyne.CanvasObject) {

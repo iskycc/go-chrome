@@ -88,9 +88,7 @@ func newRunPanel(app *App) *runPanel {
 		newSectionHeader("产物"),
 		p.artifactBox,
 	)
-	// Give the right panel a fixed width so it reads like an info card; height
-	// is managed by its content with a scroll fallback if it grows.
-	rightCard := container.NewGridWrap(fyne.NewSize(260, 1), container.NewScroll(rightPanel))
+	rightCard := container.NewPadded(rightPanel)
 
 	logArea := container.NewStack(p.logScroll, p.logEmpty)
 	p.updateLogVisibility()

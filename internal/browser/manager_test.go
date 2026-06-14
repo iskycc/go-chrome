@@ -190,6 +190,19 @@ func TestKillProcessTreeInvalidPID(t *testing.T) {
 	}
 }
 
+func TestManagerManagedPID(t *testing.T) {
+	mgr := NewManager(&config.ChromeConfig{})
+	if got := mgr.ManagedPID(); got != 0 {
+		t.Fatalf("expected 0 when no process, got %d", got)
+	}
+
+	// Simulate a launched process by setting proc to a fake process struct.
+	mgr.proc = &os.Process{Pid: 12345}
+	if got := mgr.ManagedPID(); got != 12345 {
+		t.Fatalf("expected 12345, got %d", got)
+	}
+}
+
 func TestManagerActiveUserDataDirTrackedAndCleared(t *testing.T) {
 	mgr := NewManager(&config.ChromeConfig{
 		InstallDir:  filepath.Join(t.TempDir(), "chrome"),

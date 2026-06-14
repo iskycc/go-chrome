@@ -40,6 +40,10 @@ coverage.html
 stdout*.txt
 stderr*.txt
 
+# Local agent task notes
+Todo*.md
+todo*.md
+
 # OS/editor files
 .DS_Store
 Thumbs.db
