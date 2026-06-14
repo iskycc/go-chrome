@@ -5,6 +5,7 @@ package sysinfo
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -120,4 +121,12 @@ func startTimeAndUptime() (time.Time, time.Duration, error) {
 // FormatStartTime returns a human-readable start timestamp string.
 func FormatStartTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// GoMemStats reports Go runtime heap memory in megabytes.
+func GoMemStats() (heapAllocMB float64, heapSysMB float64) {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return float64(ms.HeapAlloc) / 1024 / 1024,
+		float64(ms.HeapSys) / 1024 / 1024
 }

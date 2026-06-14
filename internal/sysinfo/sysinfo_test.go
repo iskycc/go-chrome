@@ -217,6 +217,19 @@ func TestFormatStartTime(t *testing.T) {
 	}
 }
 
+func TestGoMemStats(t *testing.T) {
+	heapAlloc, heapSys := GoMemStats()
+	if heapAlloc < 0 {
+		t.Fatalf("expected non-negative heapAlloc, got %f", heapAlloc)
+	}
+	if heapSys < 0 {
+		t.Fatalf("expected non-negative heapSys, got %f", heapSys)
+	}
+	if heapAlloc > heapSys {
+		t.Fatalf("expected heapAlloc <= heapSys, got alloc=%f sys=%f", heapAlloc, heapSys)
+	}
+}
+
 func TestUptime_CreateTimeError(t *testing.T) {
 	old := processProvider
 	processProvider = func(pid int32) (processHandle, error) {

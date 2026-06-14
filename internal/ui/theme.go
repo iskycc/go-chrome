@@ -89,11 +89,9 @@ func (a *appTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) co
 }
 
 func (a *appTheme) Font(style fyne.TextStyle) fyne.Resource {
-	if style.Bold {
-		if f := assets.AppUIFontMedium(); f != nil {
-			return f
-		}
-	}
+	// Only load the Regular font at runtime. The Medium variant is kept in the
+	// embed list for compatibility but Fyne will synthesize bold from Regular,
+	// avoiding an extra ~18 MB of resident font memory.
 	if f := assets.AppUIFontRegular(); f != nil {
 		return f
 	}

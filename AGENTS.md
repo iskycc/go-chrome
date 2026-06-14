@@ -133,3 +133,29 @@ go test ./internal/browser ./internal/runner ./internal/config ./internal/flow .
 - `retry` 失败策略已实现：当步骤的 `onError` 为 `retry` 时，最多自动重试 2 次。
 - 单步执行已实现为真正的逐步执行：`StepRunner.Init()` 初始化环境，`Next()` 每次执行一步。UI 中"单步执行"按钮初始化后会变为"下一步"。
 - 输入模板支持嵌套 `${}`（如 `${var:user=SP${11000-11099}}`），解析器使用栈深度匹配括号。
+
+## 内存与字体
+
+启动后内存占用主要由以下部分组成：
+
+1. Fyne / GLFW / OpenGL 图形上下文：通常 150-300 MB，取决于显卡驱动。
+2. 嵌入字体：项目使用 Maple Mono CN（Regular + Medium，约 36 MB）。Fyne 启动时会将 theme 返回的字体资源载入内存。
+3. Go 运行时与 GC 预留：几十 MB 到一百多 MB。
+4. Chrome 进程：只有在启动托管 Chrome 后才会出现，不计入本程序 RSS。
+
+已做的优化：
+
+- `internal/ui/theme.go` 的 `Font()` 目前只返回 Regular 字重，Bold 由 Fyne 合成，避免同时加载两个 ~18 MB 字体文件。
+- `信息` 页面同时显示 `内存 (RSS)` 和 `Go 堆内存`，便于区分 Go 自身内存与图形驱动/字体等系统内存。
+
+进一步降低字体内存的方法：
+
+```bash
+pip install fonttools brotli
+python scripts/subset-font.py \
+    assets/fonts/MapleMono-CN-Regular.ttf \
+    assets/fonts/MapleMono-CN-Regular.subset.ttf
+# 用生成的 subset 字体替换原文件后重新构建
+```
+
+该脚本只保留 UI 常用字符，通常能把单个字体从 18 MB 降到 2-4 MB。

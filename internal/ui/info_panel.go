@@ -25,6 +25,7 @@ type infoPanel struct {
 	selfName      *widget.Label
 	selfCPU       *widget.Label
 	selfMemory    *widget.Label
+	selfGoHeap    *widget.Label
 	selfStartTime *widget.Label
 	selfUptime    *widget.Label
 	chromeStatus  *widget.Label
@@ -45,6 +46,7 @@ func newInfoPanel(app *App) *infoPanel {
 	p.selfName = widget.NewLabel("")
 	p.selfCPU = widget.NewLabel("")
 	p.selfMemory = widget.NewLabel("")
+	p.selfGoHeap = widget.NewLabel("")
 	p.selfStartTime = widget.NewLabel("")
 	p.selfUptime = widget.NewLabel("")
 	p.chromeStatus = widget.NewLabel("")
@@ -57,7 +59,8 @@ func newInfoPanel(app *App) *infoPanel {
 		widget.NewFormItem("PID", p.selfPID),
 		widget.NewFormItem("名称", p.selfName),
 		widget.NewFormItem("CPU", p.selfCPU),
-		widget.NewFormItem("内存", p.selfMemory),
+		widget.NewFormItem("内存 (RSS)", p.selfMemory),
+		widget.NewFormItem("Go 堆内存", p.selfGoHeap),
 		widget.NewFormItem("启动时间", p.selfStartTime),
 		widget.NewFormItem("运行时长", p.selfUptime),
 	)
@@ -138,6 +141,8 @@ func (p *infoPanel) refresh() {
 			p.selfName.SetText(self.Name)
 			p.selfCPU.SetText(sysinfo.FormatCPU(self.CPU))
 			p.selfMemory.SetText(sysinfo.FormatMemory(self.MemoryMB))
+			heapAlloc, _ := sysinfo.GoMemStats()
+			p.selfGoHeap.SetText(sysinfo.FormatMemory(heapAlloc))
 			if start, err := sysinfo.StartTime(); err == nil {
 				p.selfStartTime.SetText(sysinfo.FormatStartTime(start))
 			} else {
