@@ -94,14 +94,30 @@ func FormatMemory(mb float64) string {
 
 // Uptime returns the duration since the current process started.
 func Uptime() (time.Duration, error) {
+	_, uptime, err := startTimeAndUptime()
+	return uptime, err
+}
+
+// StartTime returns the local timestamp when the current process started.
+func StartTime() (time.Time, error) {
+	start, _, err := startTimeAndUptime()
+	return start, err
+}
+
+func startTimeAndUptime() (time.Time, time.Duration, error) {
 	p, err := processProvider(int32(os.Getpid()))
 	if err != nil {
-		return 0, err
+		return time.Time{}, 0, err
 	}
 	createTime, err := p.CreateTime()
 	if err != nil {
-		return 0, err
+		return time.Time{}, 0, err
 	}
 	start := time.UnixMilli(createTime)
-	return time.Since(start), nil
+	return start, time.Since(start), nil
+}
+
+// FormatStartTime returns a human-readable start timestamp string.
+func FormatStartTime(t time.Time) string {
+	return t.Format("2006-01-02 15:04:05")
 }

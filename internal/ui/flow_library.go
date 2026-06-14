@@ -21,6 +21,7 @@ type flowListItem struct {
 	meta           *widget.Label
 	box            *fyne.Container
 	onSecondaryTap func(e *fyne.PointEvent)
+	onDoubleTap    func()
 }
 
 func newFlowListItem() *flowListItem {
@@ -45,6 +46,12 @@ func (item *flowListItem) CreateRenderer() fyne.WidgetRenderer {
 func (item *flowListItem) TappedSecondary(e *fyne.PointEvent) {
 	if item.onSecondaryTap != nil {
 		item.onSecondaryTap(e)
+	}
+}
+
+func (item *flowListItem) DoubleTapped(_ *fyne.PointEvent) {
+	if item.onDoubleTap != nil {
+		item.onDoubleTap()
 	}
 }
 
@@ -105,20 +112,14 @@ func newFlowLibraryPanel(app *App) *flowLibraryPanel {
 			cell.onSecondaryTap = func(e *fyne.PointEvent) {
 				p.showFlowContextMenu(int(id), e)
 			}
+			cell.onDoubleTap = func() {
+				p.openFlowAtIndex(int(id))
+			}
 		},
 	)
+	// Single click only selects; double-click opens the flow for editing.
 	p.list.OnSelected = func(id widget.ListItemID) {
 		p.selectedIndex = int(id)
-		if id >= 0 && id < len(p.flows) {
-			f := p.flows[id]
-			loaded, err := p.app.flowStore.Load(f.ID)
-			if err != nil {
-				p.app.runPanel.log("读取流程失败: " + err.Error())
-				p.app.onFlowSelected(f)
-				return
-			}
-			p.app.onFlowSelected(loaded)
-		}
 	}
 	p.list.OnUnselected = func(id widget.ListItemID) { p.selectedIndex = -1 }
 
@@ -258,6 +259,21 @@ func (p *flowLibraryPanel) selectFlow(id string) bool {
 	return false
 }
 
+func (p *flowLibraryPanel) openFlowAtIndex(idx int) {
+	if idx < 0 || idx >= len(p.flows) {
+		return
+	}
+	p.list.Select(idx)
+	f := p.flows[idx]
+	loaded, err := p.app.flowStore.Load(f.ID)
+	if err != nil {
+		p.app.runPanel.log("读取流程失败: " + err.Error())
+		p.app.onFlowSelected(f)
+		return
+	}
+	p.app.onFlowSelected(loaded)
+}
+
 func (p *flowLibraryPanel) showFlowContextMenu(idx int, e *fyne.PointEvent) {
 	if idx < 0 || idx >= len(p.flows) {
 		return
@@ -265,8 +281,8 @@ func (p *flowLibraryPanel) showFlowContextMenu(idx int, e *fyne.PointEvent) {
 	p.list.Select(idx)
 	f := p.flows[idx]
 
-	openItem := fyne.NewMenuItem("打开流程", func() {
-		p.list.Select(idx)
+	openItem := fyne.NewMenuItem("编辑流程", func() {
+		p.openFlowAtIndex(idx)
 	})
 	runItem := fyne.NewMenuItem("运行此流程", func() {
 		p.list.Select(idx)

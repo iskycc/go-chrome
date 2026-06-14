@@ -142,7 +142,9 @@ func newSectionHeader(title string, actions ...fyne.CanvasObject) fyne.CanvasObj
 	if len(actions) == 0 {
 		return titleLabel
 	}
-	return container.NewBorder(nil, nil, titleLabel, container.NewHBox(actions...))
+	// Use Border with padding so actions don't hug the top/bottom edges.
+	row := container.NewBorder(nil, nil, titleLabel, container.NewHBox(actions...))
+	return container.NewPadded(row)
 }
 
 // newPageTitle builds a page heading with an optional subtitle below it.

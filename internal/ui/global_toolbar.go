@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -146,8 +148,20 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	)
 	t.progressLine.Hide()
 
-	t.widget = container.NewVBox(operationBand, t.progressLine)
+	// Wrap the whole toolbar in a subtle card so it visually groups the controls
+	// and separates them from the tabs/content below.
+	t.widget = newToolbarCard(container.NewVBox(operationBand, t.progressLine))
 	return t
+}
+
+// newToolbarCard wraps content with a light background and rounded border for
+// the top-level toolbar.
+func newToolbarCard(content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(uiColorSecondarySurface())
+	border := canvas.NewRectangle(color.Transparent)
+	border.StrokeColor = uiColorBorder()
+	border.StrokeWidth = 1
+	return container.NewStack(bg, border, container.NewPadded(content))
 }
 
 // refreshFlows rebuilds the flow dropdown from the current flow library.

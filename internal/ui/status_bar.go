@@ -58,7 +58,9 @@ func newStatusItem(field, defaultValue string, kind statusKind, valueWidth float
 		value: val,
 		dot:   newStatusDot(kind),
 	}
-	si.row = container.NewCenter(container.NewHBox(si.dot, si.field, valueBox))
+	// Dot is placed after the value so the status indicator sits on the right
+	// side of the text instead of the top-left corner.
+	si.row = container.NewCenter(container.NewHBox(si.field, valueBox, si.dot))
 	return si
 }
 
@@ -68,7 +70,7 @@ func (si *statusItem) setValue(text string) {
 
 func (si *statusItem) setKind(kind statusKind) {
 	si.dot = newStatusDot(kind)
-	// The row is container.NewCenter(container.NewHBox(dot, field, valueBox)).
+	// The row is container.NewCenter(container.NewHBox(field, valueBox, dot)).
 	center, ok := si.row.(*fyne.Container)
 	if !ok || len(center.Objects) == 0 {
 		return
@@ -77,7 +79,7 @@ func (si *statusItem) setKind(kind statusKind) {
 	if !ok || len(hbox.Objects) == 0 {
 		return
 	}
-	hbox.Objects[0] = si.dot
+	hbox.Objects[len(hbox.Objects)-1] = si.dot
 	hbox.Refresh()
 	si.row.Refresh()
 }
@@ -93,7 +95,7 @@ func (si *statusItem) setColor(c color.Color) {
 	if !ok || len(hbox.Objects) == 0 {
 		return
 	}
-	if dotWrap, ok := hbox.Objects[0].(*fyne.Container); ok {
+	if dotWrap, ok := hbox.Objects[len(hbox.Objects)-1].(*fyne.Container); ok {
 		if circle, ok := dotWrap.Objects[0].(*canvas.Circle); ok {
 			circle.FillColor = c
 			circle.Refresh()
@@ -122,20 +124,38 @@ func newStatusBar(app *App) *statusBar {
 
 	title := widget.NewLabelWithStyle("Go Chrome", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
-	itemSpacer := canvas.NewRectangle(color.Transparent)
-	itemSpacer.SetMinSize(fyne.NewSize(16, 1))
-
-	// 当前流程信息由工具栏下拉统一展示，状态栏只保留系统状态。
-	sb.widget = container.NewHBox(
+	// Wrap the title and status rows in a subtle card so the status bar reads as
+	// a single, cohesive header strip.
+	inner := container.NewHBox(
 		title,
-		itemSpacer,
+		newVerticalSeparator(),
 		sb.save.row,
-		itemSpacer,
+		newVerticalSeparator(),
 		sb.chrome.row,
-		itemSpacer,
+		newVerticalSeparator(),
 		sb.run.row,
 	)
+	sb.widget = newStatusBarCard(inner)
 	return sb
+}
+
+// newVerticalSeparator draws a subtle vertical line for separating status items.
+func newVerticalSeparator() fyne.CanvasObject {
+	sep := canvas.NewRectangle(color.Transparent)
+	sep.StrokeColor = uiColorBorder()
+	sep.StrokeWidth = 1
+	sep.SetMinSize(fyne.NewSize(1, 20))
+	return sep
+}
+
+// newStatusBarCard wraps the status bar content with a light background and
+// subtle border, replacing the previous invisible spacers.
+func newStatusBarCard(content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(uiColorSecondarySurface())
+	border := canvas.NewRectangle(color.Transparent)
+	border.StrokeColor = uiColorBorder()
+	border.StrokeWidth = 1
+	return container.NewStack(bg, border, container.NewPadded(content))
 }
 
 func (sb *statusBar) setFlow(name string) {

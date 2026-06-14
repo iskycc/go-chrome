@@ -109,6 +109,9 @@ func (a *App) Run() {
 		if a.chromeDone != nil {
 			close(a.chromeDone)
 		}
+		if a.infoPanel != nil {
+			a.infoPanel.stopAutoRefresh()
+		}
 	})
 
 	if err := a.initDeps(); err != nil {

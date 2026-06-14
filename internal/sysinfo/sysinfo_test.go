@@ -195,6 +195,28 @@ func TestUptime(t *testing.T) {
 	}
 }
 
+func TestStartTime(t *testing.T) {
+	start, err := StartTime()
+	if err != nil {
+		t.Fatalf("StartTime failed: %v", err)
+	}
+	if start.IsZero() {
+		t.Fatal("expected non-zero start time")
+	}
+	if time.Since(start) < 0 {
+		t.Fatal("start time should not be in the future")
+	}
+}
+
+func TestFormatStartTime(t *testing.T) {
+	ts := time.Date(2026, 6, 14, 12, 30, 45, 0, time.UTC)
+	got := FormatStartTime(ts)
+	want := "2026-06-14 12:30:45"
+	if got != want {
+		t.Fatalf("FormatStartTime: got %q, want %q", got, want)
+	}
+}
+
 func TestUptime_CreateTimeError(t *testing.T) {
 	old := processProvider
 	processProvider = func(pid int32) (processHandle, error) {

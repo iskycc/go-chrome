@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"runtime"
+	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -14,21 +16,26 @@ import (
 )
 
 // infoPanel shows resource usage for the current process and the managed
-// Chrome process.
+// Chrome process. It refreshes automatically while the app is running.
 type infoPanel struct {
 	app    *App
 	widget fyne.CanvasObject
 
-	selfPID      *widget.Label
-	selfName     *widget.Label
-	selfCPU      *widget.Label
-	selfMemory   *widget.Label
-	selfUptime   *widget.Label
-	chromeStatus *widget.Label
-	chromePID    *widget.Label
-	chromeName   *widget.Label
-	chromeCPU    *widget.Label
-	chromeMemory *widget.Label
+	selfPID       *widget.Label
+	selfName      *widget.Label
+	selfCPU       *widget.Label
+	selfMemory    *widget.Label
+	selfStartTime *widget.Label
+	selfUptime    *widget.Label
+	chromeStatus  *widget.Label
+	chromePID     *widget.Label
+	chromeName    *widget.Label
+	chromeCPU     *widget.Label
+	chromeMemory  *widget.Label
+
+	refreshTicker *time.Ticker
+	stopRefresh   chan struct{}
+	refreshWg     sync.WaitGroup
 }
 
 func newInfoPanel(app *App) *infoPanel {
@@ -38,6 +45,7 @@ func newInfoPanel(app *App) *infoPanel {
 	p.selfName = widget.NewLabel("")
 	p.selfCPU = widget.NewLabel("")
 	p.selfMemory = widget.NewLabel("")
+	p.selfStartTime = widget.NewLabel("")
 	p.selfUptime = widget.NewLabel("")
 	p.chromeStatus = widget.NewLabel("")
 	p.chromePID = widget.NewLabel("")
@@ -50,6 +58,7 @@ func newInfoPanel(app *App) *infoPanel {
 		widget.NewFormItem("名称", p.selfName),
 		widget.NewFormItem("CPU", p.selfCPU),
 		widget.NewFormItem("内存", p.selfMemory),
+		widget.NewFormItem("启动时间", p.selfStartTime),
 		widget.NewFormItem("运行时长", p.selfUptime),
 	)
 
@@ -79,7 +88,39 @@ func newInfoPanel(app *App) *infoPanel {
 
 	p.widget = container.NewScroll(content)
 	p.refresh()
+	p.startAutoRefresh(2 * time.Second)
 	return p
+}
+
+func (p *infoPanel) startAutoRefresh(interval time.Duration) {
+	if p.refreshTicker != nil {
+		return
+	}
+	p.refreshTicker = time.NewTicker(interval)
+	p.stopRefresh = make(chan struct{})
+	p.refreshWg.Add(1)
+	go func() {
+		defer p.refreshWg.Done()
+		for {
+			select {
+			case <-p.refreshTicker.C:
+				p.refresh()
+			case <-p.stopRefresh:
+				return
+			}
+		}
+	}()
+}
+
+func (p *infoPanel) stopAutoRefresh() {
+	if p.refreshTicker == nil {
+		return
+	}
+	p.refreshTicker.Stop()
+	close(p.stopRefresh)
+	p.refreshWg.Wait()
+	p.refreshTicker = nil
+	p.stopRefresh = nil
 }
 
 func (p *infoPanel) refresh() {
@@ -90,12 +131,18 @@ func (p *infoPanel) refresh() {
 			p.selfName.SetText("")
 			p.selfCPU.SetText("")
 			p.selfMemory.SetText("")
+			p.selfStartTime.SetText("")
 			p.selfUptime.SetText("")
 		} else {
 			p.selfPID.SetText(fmt.Sprintf("%d", self.PID))
 			p.selfName.SetText(self.Name)
 			p.selfCPU.SetText(sysinfo.FormatCPU(self.CPU))
 			p.selfMemory.SetText(sysinfo.FormatMemory(self.MemoryMB))
+			if start, err := sysinfo.StartTime(); err == nil {
+				p.selfStartTime.SetText(sysinfo.FormatStartTime(start))
+			} else {
+				p.selfStartTime.SetText("-")
+			}
 			if uptime, err := sysinfo.Uptime(); err == nil {
 				p.selfUptime.SetText(uptime.String())
 			} else {
