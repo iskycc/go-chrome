@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -15,9 +16,6 @@ import (
 	"go-chrome/internal/runner"
 )
 
-// stepTableCell is a reusable table cell that can show either plain text or a
-// colored status badge. It preserves the right-click context menu behaviour of
-// contextMenuLabel.
 type stepTableCell struct {
 	widget.BaseWidget
 
@@ -27,6 +25,8 @@ type stepTableCell struct {
 	dotBox         fyne.CanvasObject
 	box            *fyne.Container
 	onSecondaryTap func(e *fyne.PointEvent)
+	row            int
+	panel          *stepTablePanel
 }
 
 func newStepTableCell() *stepTableCell {
@@ -41,9 +41,6 @@ func newStepTableCell() *stepTableCell {
 	c.dot = canvas.NewCircle(color.Transparent)
 	c.dotBox = container.NewGridWrap(fyne.NewSize(8, 8), c.dot)
 
-	// Put the text in Border center so it receives the remaining table-cell
-	// width. HBox only uses child MinSize values, which can shrink an ellipsis
-	// label down to "..." even when the table column itself is wide enough.
 	c.box = container.NewBorder(nil, nil, c.dotBox, nil, c.labelBox)
 	return c
 }
@@ -54,6 +51,12 @@ func (c *stepTableCell) CreateRenderer() fyne.WidgetRenderer {
 
 func (c *stepTableCell) MinSize() fyne.Size {
 	return c.box.MinSize()
+}
+
+func (c *stepTableCell) Tapped(e *fyne.PointEvent) {
+	if c.panel != nil {
+		c.panel.onCellTapped(c.row)
+	}
 }
 
 func (c *stepTableCell) TappedSecondary(e *fyne.PointEvent) {
@@ -94,13 +97,16 @@ type stepTablePanel struct {
 	statuses      []runner.Status
 	selectedBar   *fyne.Container
 	onStepChanged func()
+
+	lastTapRow int
+	lastTapAt  time.Time
 }
 
 var stepTableHeaders = []string{"#", "状态", "启用", "步骤名称", "类型", "目标", "输入/期望", "等待", "失败处理"}
 var stepTableWidths = []float32{44, 72, 56, 180, 120, 260, 220, 80, 110}
 
 func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
-	p := &stepTablePanel{app: app, selected: -1, onStepChanged: onStepChanged}
+	p := &stepTablePanel{app: app, selected: -1, onStepChanged: onStepChanged, lastTapRow: -1}
 	p.initTable()
 
 	addBtn := widget.NewButtonWithIcon("新增步骤", theme.ContentAddIcon(), func() { p.showAddStepDialog() })
@@ -144,6 +150,8 @@ func newStepTablePanel(app *App, onStepChanged func()) *stepTablePanel {
 	return p
 }
 
+const doubleClickWindow = 500 * time.Millisecond
+
 func (p *stepTablePanel) initTable() {
 	cols := len(stepTableHeaders)
 	p.table = widget.NewTableWithHeaders(
@@ -158,6 +166,8 @@ func (p *stepTablePanel) initTable() {
 		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			c := cell.(*stepTableCell)
+			c.row = id.Row
+			c.panel = p
 			if id.Row < 0 || id.Row >= len(p.stepsData) {
 				c.setText("")
 				c.setDotColor(nil)
@@ -234,8 +244,23 @@ func (p *stepTablePanel) initTable() {
 		}
 		p.selected = id.Row
 		p.updateSelectedActions()
-		p.app.onStepSelected(&p.stepsData[id.Row], id.Row)
 	}
+}
+
+func (p *stepTablePanel) onCellTapped(row int) {
+	if row < 0 || row >= len(p.stepsData) {
+		return
+	}
+	now := time.Now()
+	if row == p.lastTapRow && now.Sub(p.lastTapAt) < doubleClickWindow {
+		p.lastTapRow = -1
+		p.app.onStepSelected(&p.stepsData[row], row)
+		return
+	}
+	p.lastTapRow = row
+	p.lastTapAt = now
+	p.table.UnselectAll()
+	p.table.Select(widget.TableCellID{Row: row, Col: 0})
 }
 
 func (p *stepTablePanel) statusForRow(row int) runner.Status {
@@ -296,6 +321,7 @@ func (p *stepTablePanel) loadFlow(f *flow.Flow) {
 		p.stepsData = f.Steps
 	}
 	p.selected = -1
+	p.lastTapRow = -1
 	p.statuses = nil
 	p.updateSelectedActions()
 	p.updateTableVisibility()
@@ -328,6 +354,7 @@ func (p *stepTablePanel) showAddStepDialog() {
 			}
 			p.stepsData = append(p.stepsData[:idx], append([]flow.Step{newStep}, p.stepsData[idx:]...)...)
 			p.currentFlow.Steps = p.stepsData
+			p.lastTapRow = -1
 			p.updateTableVisibility()
 			p.table.Refresh()
 			p.table.Select(widget.TableCellID{Row: idx, Col: 0})
@@ -346,6 +373,7 @@ func (p *stepTablePanel) deleteStep() {
 	p.stepsData = append(p.stepsData[:p.selected], p.stepsData[p.selected+1:]...)
 	p.currentFlow.Steps = p.stepsData
 	p.selected = -1
+	p.lastTapRow = -1
 	p.updateSelectedActions()
 	p.updateTableVisibility()
 	p.table.UnselectAll()
@@ -363,6 +391,7 @@ func (p *stepTablePanel) moveStep(delta int) {
 	p.stepsData[idx], p.stepsData[newIdx] = p.stepsData[newIdx], p.stepsData[idx]
 	p.currentFlow.Steps = p.stepsData
 	p.selected = newIdx
+	p.lastTapRow = -1
 	p.updateSelectedActions()
 	p.table.Select(widget.TableCellID{Row: newIdx, Col: 0})
 	p.table.Refresh()
@@ -427,6 +456,7 @@ func (p *stepTablePanel) showStepContextMenu(row int, e *fyne.PointEvent) {
 	if row < 0 || row >= len(p.stepsData) || p.currentFlow == nil {
 		return
 	}
+	p.lastTapRow = -1
 	p.table.Select(widget.TableCellID{Row: row, Col: 0})
 	s := &p.stepsData[row]
 

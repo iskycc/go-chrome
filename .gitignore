@@ -29,6 +29,14 @@
 
 # Font files downloaded by build scripts (keep only licenses in repo)
 assets/fonts/*.ttf
+assets/fonts/*.woff2
+
+# Node.js (used by ad-hoc font tooling outside the repo)
+node_modules/
+package.json
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # Go test/build cache artifacts
 *.test
