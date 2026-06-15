@@ -353,7 +353,7 @@ func newLogLine(timestamp, msg string, msgColor color.Color, p *runPanel) *logLi
 	item.timeLabel.TextSize = theme.CaptionTextSize()
 	item.timeLabel.TextStyle = fyne.TextStyle{Monospace: true}
 
-	item.msgLabel = canvas.NewText(msg, msgColor)
+	item.msgLabel = canvas.NewText(truncate(msg, 240), msgColor)
 	item.msgLabel.TextSize = 13
 	item.msgLabel.TextStyle = fyne.TextStyle{Monospace: true}
 

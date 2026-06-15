@@ -247,14 +247,14 @@ func newEnvPanel(app *App) *envPanel {
 		newSectionHeader("环境列表", newEnvBtn, envMoreBtn),
 		p.search,
 	)
-	left := container.NewBorder(leftTop, nil, nil, nil, container.NewScroll(p.list))
+	left := container.NewPadded(container.NewBorder(leftTop, nil, nil, nil, container.NewScroll(p.list)))
 
 	rightTop := container.NewVBox(
 		newSectionHeader("环境变量", newVarBtn, varMoreBtn),
 		newSectionHeader("配置文件", importBtn, exportBtn),
 	)
 	rightContent := container.NewStack(p.varTable, p.emptyState)
-	right := container.NewBorder(rightTop, nil, nil, nil, rightContent)
+	right := container.NewPadded(container.NewBorder(rightTop, nil, nil, nil, rightContent))
 
 	split := container.NewHSplit(left, right)
 	split.SetOffset(0.4)

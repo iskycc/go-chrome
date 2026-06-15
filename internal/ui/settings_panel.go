@@ -104,7 +104,7 @@ func newSettingsPanel(app *App) *settingsPanel {
 		container.NewHBox(p.statusLabel),
 	)
 
-	p.widget = container.NewScroll(content)
+	p.widget = container.NewScroll(container.NewPadded(content))
 	p.load(app.cfg.Chrome)
 	return p
 }
