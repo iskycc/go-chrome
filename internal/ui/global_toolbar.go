@@ -32,6 +32,7 @@ type globalToolbar struct {
 	runBtn         *widget.Button
 	stepBtn        *widget.Button
 	stopBtn        *widget.Button
+	shortcutBtn    *widget.Button
 	progress       *widget.ProgressBar
 	progressText   *progressLabel
 	progressLine   fyne.CanvasObject
@@ -110,6 +111,10 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	t.stopBtn.Disable()
 	t.stopBtn.Importance = widget.DangerImportance
 
+	t.shortcutBtn = widget.NewButtonWithIcon("快捷方式", theme.DocumentCreateIcon(), func() {
+		app.showCreateShortcutDialogForFlow(app.currentFlow)
+	})
+
 	t.progress = widget.NewProgressBar()
 	t.progress.Min = 0
 	t.progress.Max = 1
@@ -128,6 +133,7 @@ func newGlobalToolbar(app *App) *globalToolbar {
 		t.runBtn,
 		t.stepBtn,
 		t.stopBtn,
+		t.shortcutBtn,
 	)
 	envBox := newInlineToolbarGroup("环境",
 		container.NewGridWrap(fyne.NewSize(160, t.envSelect.MinSize().Height), t.envSelect),

@@ -288,6 +288,9 @@ func (p *flowLibraryPanel) showFlowContextMenu(idx int, e *fyne.PointEvent) {
 		p.list.Select(idx)
 		p.app.runCurrentFlow()
 	})
+	shortcutItem := fyne.NewMenuItem("生成桌面快捷方式", func() {
+		p.app.showCreateShortcutDialogForFlow(f)
+	})
 	cloneItem := fyne.NewMenuItem("复制流程", func() {
 		p.app.onFlowClone(f)
 	})
@@ -311,6 +314,7 @@ func (p *flowLibraryPanel) showFlowContextMenu(idx int, e *fyne.PointEvent) {
 	menu := fyne.NewMenu("流程操作",
 		openItem,
 		runItem,
+		shortcutItem,
 		fyne.NewMenuItemSeparator(),
 		cloneItem,
 		exportItem,
