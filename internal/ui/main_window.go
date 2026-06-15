@@ -165,7 +165,7 @@ func (a *App) selectRunTab() {
 func (a *App) Run() {
 	a.fyneApp = app.NewWithID("com.go-chrome.app")
 	a.fyneApp.Settings().SetTheme(newAppTheme())
-	if ico := assets.Icon(); ico != nil {
+	if ico := assets.AppIcon(); ico != nil {
 		a.fyneApp.SetIcon(ico)
 	}
 	a.mainWin = a.fyneApp.NewWindow("Chrome 自动化编排工具")
