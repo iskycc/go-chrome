@@ -16,7 +16,9 @@ import (
 )
 
 // infoPanel shows resource usage for the current process and the managed
-// Chrome process. It refreshes automatically while the app is running.
+// Chrome process. It refreshes automatically while the app is running and the
+// panel is visible, and avoids unnecessary UI churn by only updating labels
+// when values actually change.
 type infoPanel struct {
 	app    *App
 	widget fyne.CanvasObject
@@ -37,6 +39,23 @@ type infoPanel struct {
 	refreshTicker *time.Ticker
 	stopRefresh   chan struct{}
 	refreshWg     sync.WaitGroup
+	visible       bool
+
+	// Cached values to avoid calling SetText when nothing changed.
+	cache struct {
+		selfPID       string
+		selfName      string
+		selfCPU       string
+		selfMemory    string
+		selfGoHeap    string
+		selfStartTime string
+		selfUptime    string
+		chromeStatus  string
+		chromePID     string
+		chromeName    string
+		chromeCPU     string
+		chromeMemory  string
+	}
 }
 
 func newInfoPanel(app *App) *infoPanel {
@@ -78,8 +97,15 @@ func newInfoPanel(app *App) *infoPanel {
 	})
 	refreshBtn.Importance = widget.MediumImportance
 
+	gcBtn := widget.NewButton("强制 GC", func() {
+		runtime.GC()
+		runtime.GC()
+		p.refresh()
+	})
+	gcBtn.Importance = widget.LowImportance
+
 	content := container.NewVBox(
-		newSectionHeader("系统信息", refreshBtn),
+		newSectionHeader("系统信息", refreshBtn, gcBtn),
 		newMutedText(fmt.Sprintf("平台：%s/%s", runtime.GOOS, runtime.GOARCH)),
 
 		newSectionHeader("当前程序"),
@@ -90,9 +116,20 @@ func newInfoPanel(app *App) *infoPanel {
 	)
 
 	p.widget = container.NewScroll(content)
-	p.refresh()
-	p.startAutoRefresh(2 * time.Second)
 	return p
+}
+
+// SetVisible starts or stops automatic refreshing based on whether the info
+// tab is currently shown. This avoids allocating UI objects while the user is
+// on another tab.
+func (p *infoPanel) SetVisible(visible bool) {
+	p.visible = visible
+	if visible {
+		p.refresh()
+		p.startAutoRefresh(5 * time.Second)
+	} else {
+		p.stopAutoRefresh()
+	}
 }
 
 func (p *infoPanel) startAutoRefresh(interval time.Duration) {
@@ -130,28 +167,29 @@ func (p *infoPanel) refresh() {
 	fyne.Do(func() {
 		self, err := sysinfo.SelfInfo()
 		if err != nil {
-			p.selfPID.SetText("读取失败")
-			p.selfName.SetText("")
-			p.selfCPU.SetText("")
-			p.selfMemory.SetText("")
-			p.selfStartTime.SetText("")
-			p.selfUptime.SetText("")
+			p.setLabel(p.selfPID, &p.cache.selfPID, "读取失败")
+			p.setLabel(p.selfName, &p.cache.selfName, "")
+			p.setLabel(p.selfCPU, &p.cache.selfCPU, "")
+			p.setLabel(p.selfMemory, &p.cache.selfMemory, "")
+			p.setLabel(p.selfGoHeap, &p.cache.selfGoHeap, "")
+			p.setLabel(p.selfStartTime, &p.cache.selfStartTime, "")
+			p.setLabel(p.selfUptime, &p.cache.selfUptime, "")
 		} else {
-			p.selfPID.SetText(fmt.Sprintf("%d", self.PID))
-			p.selfName.SetText(self.Name)
-			p.selfCPU.SetText(sysinfo.FormatCPU(self.CPU))
-			p.selfMemory.SetText(sysinfo.FormatMemory(self.MemoryMB))
+			p.setLabel(p.selfPID, &p.cache.selfPID, fmt.Sprintf("%d", self.PID))
+			p.setLabel(p.selfName, &p.cache.selfName, self.Name)
+			p.setLabel(p.selfCPU, &p.cache.selfCPU, sysinfo.FormatCPU(self.CPU))
+			p.setLabel(p.selfMemory, &p.cache.selfMemory, sysinfo.FormatMemory(self.MemoryMB))
 			heapAlloc, _ := sysinfo.GoMemStats()
-			p.selfGoHeap.SetText(sysinfo.FormatMemory(heapAlloc))
+			p.setLabel(p.selfGoHeap, &p.cache.selfGoHeap, sysinfo.FormatMemory(heapAlloc))
 			if start, err := sysinfo.StartTime(); err == nil {
-				p.selfStartTime.SetText(sysinfo.FormatStartTime(start))
+				p.setLabel(p.selfStartTime, &p.cache.selfStartTime, sysinfo.FormatStartTime(start))
 			} else {
-				p.selfStartTime.SetText("-")
+				p.setLabel(p.selfStartTime, &p.cache.selfStartTime, "-")
 			}
 			if uptime, err := sysinfo.Uptime(); err == nil {
-				p.selfUptime.SetText(uptime.String())
+				p.setLabel(p.selfUptime, &p.cache.selfUptime, uptime.String())
 			} else {
-				p.selfUptime.SetText("-")
+				p.setLabel(p.selfUptime, &p.cache.selfUptime, "-")
 			}
 		}
 
@@ -176,17 +214,27 @@ func (p *infoPanel) refresh() {
 					status = "启动失败"
 				}
 			}
-			p.chromeStatus.SetText(status)
-			p.chromePID.SetText("-")
-			p.chromeName.SetText("-")
-			p.chromeCPU.SetText("-")
-			p.chromeMemory.SetText("-")
+			p.setLabel(p.chromeStatus, &p.cache.chromeStatus, status)
+			p.setLabel(p.chromePID, &p.cache.chromePID, "-")
+			p.setLabel(p.chromeName, &p.cache.chromeName, "-")
+			p.setLabel(p.chromeCPU, &p.cache.chromeCPU, "-")
+			p.setLabel(p.chromeMemory, &p.cache.chromeMemory, "-")
 		} else {
-			p.chromeStatus.SetText("运行中")
-			p.chromePID.SetText(fmt.Sprintf("%d", chrome.PID))
-			p.chromeName.SetText(chrome.Name)
-			p.chromeCPU.SetText(sysinfo.FormatCPU(chrome.CPU))
-			p.chromeMemory.SetText(sysinfo.FormatMemory(chrome.MemoryMB))
+			p.setLabel(p.chromeStatus, &p.cache.chromeStatus, "运行中")
+			p.setLabel(p.chromePID, &p.cache.chromePID, fmt.Sprintf("%d", chrome.PID))
+			p.setLabel(p.chromeName, &p.cache.chromeName, chrome.Name)
+			p.setLabel(p.chromeCPU, &p.cache.chromeCPU, sysinfo.FormatCPU(chrome.CPU))
+			p.setLabel(p.chromeMemory, &p.cache.chromeMemory, sysinfo.FormatMemory(chrome.MemoryMB))
 		}
 	})
+}
+
+// setLabel only calls SetText when the value changed, which avoids allocating
+// new text objects and triggering re-renders on every tick.
+func (p *infoPanel) setLabel(label *widget.Label, cache *string, value string) {
+	if *cache == value {
+		return
+	}
+	*cache = value
+	label.SetText(value)
 }

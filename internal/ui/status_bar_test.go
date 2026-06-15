@@ -3,10 +3,6 @@ package ui
 import (
 	"image/color"
 	"testing"
-
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/widget"
 )
 
 func TestNewStatusItem(t *testing.T) {
@@ -20,6 +16,9 @@ func TestNewStatusItem(t *testing.T) {
 	if si.value.Text != "默认值" {
 		t.Fatalf("expected default value '默认值', got %q", si.value.Text)
 	}
+	if si.dot == nil {
+		t.Fatal("expected dot circle")
+	}
 }
 
 func TestStatusItemSetValue(t *testing.T) {
@@ -28,24 +27,24 @@ func TestStatusItemSetValue(t *testing.T) {
 	if si.value.Text != "新值" {
 		t.Fatalf("expected value '新值', got %q", si.value.Text)
 	}
+
+	// Setting the same value again should be a no-op.
+	si.setValue("新值")
+	if si.value.Text != "新值" {
+		t.Fatalf("expected value unchanged, got %q", si.value.Text)
+	}
 }
 
 func TestStatusItemSetKind(t *testing.T) {
 	si := newStatusItem("字段", "值", statusSuccess, 100)
+	oldDot := si.dot
 	si.setKind(statusDanger)
 
-	center, ok := si.row.(*fyne.Container)
-	if !ok || len(center.Objects) == 0 {
-		t.Fatal("expected center container with hbox")
+	if si.dot != oldDot {
+		t.Fatal("expected dot circle to be reused, not replaced")
 	}
-	hbox, ok := center.Objects[0].(*fyne.Container)
-	if !ok || len(hbox.Objects) == 0 {
-		t.Fatal("expected hbox inside center")
-	}
-	// Dot is now the last object.
-	last := hbox.Objects[len(hbox.Objects)-1]
-	if last != si.dot {
-		t.Fatal("expected last object to be the updated dot")
+	if si.dot.FillColor != uiColorForStatus(statusDanger) {
+		t.Fatalf("expected dot color updated to danger, got %v", si.dot.FillColor)
 	}
 }
 
@@ -53,26 +52,8 @@ func TestStatusItemSetColor(t *testing.T) {
 	si := newStatusItem("字段", "值", statusSuccess, 100)
 	newColor := color.NRGBA{R: 0xff, A: 0xff}
 	si.setColor(newColor)
-
-	center, ok := si.row.(*fyne.Container)
-	if !ok || len(center.Objects) == 0 {
-		t.Fatal("expected center container with hbox")
-	}
-	hbox, ok := center.Objects[0].(*fyne.Container)
-	if !ok || len(hbox.Objects) == 0 {
-		t.Fatal("expected hbox inside center")
-	}
-	last := hbox.Objects[len(hbox.Objects)-1]
-	dotWrap, ok := last.(*fyne.Container)
-	if !ok || len(dotWrap.Objects) == 0 {
-		t.Fatal("expected dot wrapper container")
-	}
-	circle, ok := dotWrap.Objects[0].(*canvas.Circle)
-	if !ok {
-		t.Fatalf("expected canvas.Circle, got %T", dotWrap.Objects[0])
-	}
-	if circle.FillColor != newColor {
-		t.Fatalf("expected dot color %v, got %v", newColor, circle.FillColor)
+	if si.dot.FillColor != newColor {
+		t.Fatalf("expected dot color %v, got %v", newColor, si.dot.FillColor)
 	}
 }
 
@@ -117,14 +98,23 @@ func TestStatusBarSetRun(t *testing.T) {
 	}
 }
 
-func TestStatusItemSetKind_InvalidRow(t *testing.T) {
-	si := &statusItem{row: widget.NewLabel("not a center container")}
-	// Should not panic on unexpected row structure.
+func TestStatusItemSetKind_NoDot(t *testing.T) {
+	si := &statusItem{dot: nil}
+	// Should not panic when dot is nil.
 	si.setKind(statusSuccess)
 }
 
-func TestStatusItemSetColor_InvalidRow(t *testing.T) {
-	si := &statusItem{row: widget.NewLabel("not a center container")}
-	// Should not panic on unexpected row structure.
+func TestStatusItemSetColor_NoDot(t *testing.T) {
+	si := &statusItem{dot: nil}
+	// Should not panic when dot is nil.
 	si.setColor(color.NRGBA{R: 0xff, A: 0xff})
+}
+
+func TestStatusItemSetValue_Unchanged(t *testing.T) {
+	si := newStatusItem("字段", "值", statusSuccess, 100)
+	// setValue should skip when text matches.
+	si.setValue("值")
+	if si.value.Text != "值" {
+		t.Fatalf("expected unchanged value, got %q", si.value.Text)
+	}
 }

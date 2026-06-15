@@ -199,7 +199,12 @@ func (a *App) buildUI() {
 	)
 	a.moduleTabs.SetTabLocation(container.TabLocationTop)
 	a.moduleTabs.OnChanged = func(item *container.TabItem) {
-		if item.Content == a.infoPanel.widget {
+		if a.infoPanel == nil {
+			return
+		}
+		visible := item.Content == a.infoPanel.widget
+		a.infoPanel.SetVisible(visible)
+		if visible {
 			a.infoPanel.refresh()
 		}
 	}

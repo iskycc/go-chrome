@@ -35,15 +35,16 @@ const (
 )
 
 // statusItem bundles the static field-name label with the dynamic value label
-// and a colored dot. Callers update them as a unit.
+// and a colored dot. The dot circle is reused and only recolored on status
+// changes to avoid allocating new canvas objects every tick.
 type statusItem struct {
 	field fyne.CanvasObject
 	value *widget.Label
-	dot   fyne.CanvasObject
+	dot   *canvas.Circle
 	row   fyne.CanvasObject
 }
 
-// newStatusItem builds a compact status row: [dot, muted field, value]. The
+// newStatusItem builds a compact status row: [muted field, value, dot]. The
 // value label is wrapped in a fixed-width container so long values truncate
 // with ellipsis instead of squeezing neighbouring items.
 func newStatusItem(field, defaultValue string, kind statusKind, valueWidth float32) *statusItem {
@@ -53,54 +54,37 @@ func newStatusItem(field, defaultValue string, kind statusKind, valueWidth float
 
 	valueBox := container.NewGridWrap(fyne.NewSize(valueWidth, val.MinSize().Height), val)
 
+	dot := canvas.NewCircle(uiColorForStatus(kind))
+	dot.StrokeWidth = 0
+	dotBox := container.NewGridWrap(fyne.NewSize(8, 8), dot)
+
 	si := &statusItem{
 		field: newMutedText(field),
 		value: val,
-		dot:   newStatusDot(kind),
+		dot:   dot,
 	}
-	// Dot is placed after the value so the status indicator sits on the right
-	// side of the text instead of the top-left corner.
-	si.row = container.NewCenter(container.NewHBox(si.field, valueBox, si.dot))
+	si.row = container.NewCenter(container.NewHBox(si.field, valueBox, dotBox))
 	return si
 }
 
 func (si *statusItem) setValue(text string) {
+	if si.value.Text == text {
+		return
+	}
 	si.value.SetText(truncate(text, 200))
 }
 
 func (si *statusItem) setKind(kind statusKind) {
-	si.dot = newStatusDot(kind)
-	// The row is container.NewCenter(container.NewHBox(field, valueBox, dot)).
-	center, ok := si.row.(*fyne.Container)
-	if !ok || len(center.Objects) == 0 {
-		return
-	}
-	hbox, ok := center.Objects[0].(*fyne.Container)
-	if !ok || len(hbox.Objects) == 0 {
-		return
-	}
-	hbox.Objects[len(hbox.Objects)-1] = si.dot
-	hbox.Refresh()
-	si.row.Refresh()
+	si.setColor(uiColorForStatus(kind))
 }
 
-// setColor is kept for callers that already have a raw color. It recolors the
-// dot without changing the badge helper.
+// setColor recolors the existing dot circle instead of creating a new one.
 func (si *statusItem) setColor(c color.Color) {
-	center, ok := si.row.(*fyne.Container)
-	if !ok || len(center.Objects) == 0 {
+	if si.dot == nil {
 		return
 	}
-	hbox, ok := center.Objects[0].(*fyne.Container)
-	if !ok || len(hbox.Objects) == 0 {
-		return
-	}
-	if dotWrap, ok := hbox.Objects[len(hbox.Objects)-1].(*fyne.Container); ok {
-		if circle, ok := dotWrap.Objects[0].(*canvas.Circle); ok {
-			circle.FillColor = c
-			circle.Refresh()
-		}
-	}
+	si.dot.FillColor = c
+	si.dot.Refresh()
 }
 
 type statusBar struct {
