@@ -126,7 +126,7 @@ func (p *infoPanel) SetVisible(visible bool) {
 	p.visible = visible
 	if visible {
 		p.refresh()
-		p.startAutoRefresh(5 * time.Second)
+		p.startAutoRefresh(2 * time.Second)
 	} else {
 		p.stopAutoRefresh()
 	}
