@@ -265,7 +265,7 @@ func (m *Manager) Start() (int, error) {
 	}
 	m.proc = proc
 	m.activeUserDataDir = m.cfg.UserDataDir
-	logx.Infof("Chrome started on port %d", port)
+	logx.Info("Chrome started")
 	return port, nil
 }
 
@@ -289,7 +289,7 @@ func (m *Manager) StartReplay(runID string) (int, error) {
 	}
 	m.proc = proc
 	m.activeUserDataDir = userDataDir
-	logx.Infof("Replay Chrome started on port %d", port)
+	logx.Info("Replay Chrome started")
 	return port, nil
 }
 

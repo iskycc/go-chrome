@@ -12,7 +12,6 @@ import (
 	"github.com/chromedp/chromedp"
 
 	"go-chrome/internal/flow"
-	"go-chrome/internal/logx"
 	"go-chrome/internal/template"
 )
 
@@ -230,7 +229,6 @@ func (a *ActionExecutor) getText(ctx context.Context, step flow.Step, eng *templ
 	if err := chromedp.Run(ctx, chromedp.Text(xpath, &text, chromedp.BySearch)); err != nil {
 		return fmt.Errorf("get text: %w", err)
 	}
-	logx.Infof("Got text: %s", text)
 	return nil
 }
 

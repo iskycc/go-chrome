@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -34,6 +35,34 @@ var processProvider = func(pid int32) (processHandle, error) {
 	return process.NewProcess(pid)
 }
 
+var appStartedAt = time.Now()
+
+// Sampler reuses process handles across refreshes. gopsutil's CPU percentage
+// calculation also depends on reusing the same Process instance, so creating a
+// new process object on every UI refresh is both wasteful and less accurate.
+type Sampler struct {
+	mu sync.Mutex
+
+	selfPID   int32
+	selfStart time.Time
+	selfName  string
+
+	lastSelfCPUTime time.Duration
+	lastSelfCPUWall time.Time
+
+	chromePID int32
+	chrome    processHandle
+}
+
+// NewSampler creates a reusable process sampler for UI refresh loops.
+func NewSampler() *Sampler {
+	return &Sampler{
+		selfPID:   int32(os.Getpid()),
+		selfStart: appStartedAt,
+		selfName:  currentProcessName(),
+	}
+}
+
 // SelfInfo returns the current process resource usage.
 func SelfInfo() (ProcessSnapshot, error) {
 	return infoForPID(int32(os.Getpid()))
@@ -42,19 +71,28 @@ func SelfInfo() (ProcessSnapshot, error) {
 // SelfInfoWithUptime returns the current process resource usage together with
 // its start time and uptime using a single process handle.
 func SelfInfoWithUptime() (ProcessSnapshot, time.Time, time.Duration, error) {
-	pid := int32(os.Getpid())
-	p, err := processProvider(pid)
-	if err != nil {
-		return ProcessSnapshot{Exists: false}, time.Time{}, 0, err
-	}
+	return NewSampler().SelfInfoWithUptime()
+}
 
-	info := infoFromProcess(pid, p)
-	createTime, err := p.CreateTime()
+// SelfInfoWithUptime returns current process usage together with start time and
+// uptime, reusing the sampler's cached process handle.
+func (s *Sampler) SelfInfoWithUptime() (ProcessSnapshot, time.Time, time.Duration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	memMB, err := currentProcessRSSMB()
 	if err != nil {
-		return info, time.Time{}, 0, err
+		memMB = 0
 	}
-	start := time.UnixMilli(createTime)
-	return info, start, time.Since(start), nil
+	cpu := s.selfCPUPercentLocked()
+	info := ProcessSnapshot{
+		PID:      s.selfPID,
+		Name:     s.selfName,
+		CPU:      cpu,
+		MemoryMB: memMB,
+		Exists:   true,
+	}
+	return info, s.selfStart, time.Since(s.selfStart), nil
 }
 
 // ChromeInfo returns resource usage for the managed Chrome process.
@@ -64,6 +102,63 @@ func ChromeInfo(pid int) (ProcessSnapshot, error) {
 		return ProcessSnapshot{Exists: false}, nil
 	}
 	return infoForPID(int32(pid))
+}
+
+// ChromeInfo returns resource usage for the managed Chrome process while
+// reusing the process handle as long as the PID is unchanged.
+func (s *Sampler) ChromeInfo(pid int) (ProcessSnapshot, error) {
+	if pid <= 0 {
+		s.mu.Lock()
+		s.chromePID = 0
+		s.chrome = nil
+		s.mu.Unlock()
+		return ProcessSnapshot{Exists: false}, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, err := s.processForChromeLocked(int32(pid))
+	if err != nil {
+		s.chromePID = 0
+		s.chrome = nil
+		return ProcessSnapshot{Exists: false}, nil
+	}
+	return infoFromProcess(int32(pid), p), nil
+}
+
+func (s *Sampler) selfCPUPercentLocked() float64 {
+	cpuTime, err := currentProcessCPUTime()
+	if err != nil {
+		return 0
+	}
+	now := time.Now()
+	if s.lastSelfCPUWall.IsZero() {
+		s.lastSelfCPUTime = cpuTime
+		s.lastSelfCPUWall = now
+		return 0
+	}
+	cpuDelta := cpuTime - s.lastSelfCPUTime
+	wallDelta := now.Sub(s.lastSelfCPUWall)
+	s.lastSelfCPUTime = cpuTime
+	s.lastSelfCPUWall = now
+	if cpuDelta <= 0 || wallDelta <= 0 {
+		return 0
+	}
+	return cpuDelta.Seconds() / wallDelta.Seconds() * 100
+}
+
+func (s *Sampler) processForChromeLocked(pid int32) (processHandle, error) {
+	if s.chrome != nil && s.chromePID == pid {
+		return s.chrome, nil
+	}
+	p, err := processProvider(pid)
+	if err != nil {
+		return nil, err
+	}
+	s.chromePID = pid
+	s.chrome = p
+	return p, nil
 }
 
 func infoForPID(pid int32) (ProcessSnapshot, error) {
@@ -142,6 +237,24 @@ func startTimeAndUptime() (time.Time, time.Duration, error) {
 // FormatStartTime returns a human-readable start timestamp string.
 func FormatStartTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// FormatUptime returns a stable uptime string that changes at most once per
+// second, avoiding unnecessary text layout work during repeated refreshes.
+func FormatUptime(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	d = d.Truncate(time.Second)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	d -= m * time.Minute
+	s := d / time.Second
+	if h > 0 {
+		return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
+	}
+	return fmt.Sprintf("%dm%02ds", m, s)
 }
 
 // GoMemStats reports Go runtime heap memory in megabytes.

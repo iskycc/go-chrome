@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"runtime"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,12 +23,12 @@ import (
 type infoPanel struct {
 	app    *App
 	widget fyne.CanvasObject
+	sample *sysinfo.Sampler
 
 	selfPID       *widget.Label
 	selfName      *widget.Label
 	selfCPU       *widget.Label
 	selfMemory    *widget.Label
-	selfGoHeap    *widget.Label
 	selfStartTime *widget.Label
 	selfUptime    *widget.Label
 	chromeStatus  *widget.Label
@@ -50,7 +49,6 @@ type infoPanel struct {
 		selfName      string
 		selfCPU       string
 		selfMemory    string
-		selfGoHeap    string
 		selfStartTime string
 		selfUptime    string
 		chromeStatus  string
@@ -62,13 +60,12 @@ type infoPanel struct {
 }
 
 func newInfoPanel(app *App) *infoPanel {
-	p := &infoPanel{app: app}
+	p := &infoPanel{app: app, sample: sysinfo.NewSampler()}
 
 	p.selfPID = widget.NewLabel("")
 	p.selfName = widget.NewLabel("")
 	p.selfCPU = widget.NewLabel("")
 	p.selfMemory = widget.NewLabel("")
-	p.selfGoHeap = widget.NewLabel("")
 	p.selfStartTime = widget.NewLabel("")
 	p.selfUptime = widget.NewLabel("")
 	p.chromeStatus = widget.NewLabel("")
@@ -82,7 +79,6 @@ func newInfoPanel(app *App) *infoPanel {
 		widget.NewFormItem("名称", p.selfName),
 		widget.NewFormItem("CPU", p.selfCPU),
 		widget.NewFormItem("内存 (RSS)", p.selfMemory),
-		widget.NewFormItem("Go 堆内存", p.selfGoHeap),
 		widget.NewFormItem("启动时间", p.selfStartTime),
 		widget.NewFormItem("运行时长", p.selfUptime),
 	)
@@ -100,16 +96,8 @@ func newInfoPanel(app *App) *infoPanel {
 	})
 	refreshBtn.Importance = widget.MediumImportance
 
-	gcBtn := widget.NewButton("强制 GC", func() {
-		runtime.GC()
-		runtime.GC()
-		debug.FreeOSMemory()
-		go p.refresh()
-	})
-	gcBtn.Importance = widget.LowImportance
-
 	content := container.NewVBox(
-		newSectionHeader("系统信息", refreshBtn, gcBtn),
+		newSectionHeader("系统信息", refreshBtn),
 		newMutedText(fmt.Sprintf("平台：%s/%s", runtime.GOOS, runtime.GOARCH)),
 
 		newSectionHeader("当前程序"),
@@ -184,7 +172,6 @@ type infoSnapshot struct {
 	selfName      string
 	selfCPU       string
 	selfMemory    string
-	selfGoHeap    string
 	selfStartTime string
 	selfUptime    string
 	chromeStatus  string
@@ -197,7 +184,7 @@ type infoSnapshot struct {
 func (p *infoPanel) collectSnapshot() infoSnapshot {
 	var snap infoSnapshot
 
-	self, start, uptime, err := sysinfo.SelfInfoWithUptime()
+	self, start, uptime, err := p.sample.SelfInfoWithUptime()
 	if err != nil && !self.Exists {
 		snap.selfPID = "读取失败"
 	} else {
@@ -205,15 +192,13 @@ func (p *infoPanel) collectSnapshot() infoSnapshot {
 		snap.selfName = self.Name
 		snap.selfCPU = sysinfo.FormatCPU(self.CPU)
 		snap.selfMemory = sysinfo.FormatMemory(self.MemoryMB)
-		heapAlloc, _ := sysinfo.GoMemStats()
-		snap.selfGoHeap = sysinfo.FormatMemory(heapAlloc)
 		if err == nil {
 			snap.selfStartTime = sysinfo.FormatStartTime(start)
 		} else {
 			snap.selfStartTime = "-"
 		}
 		if err == nil {
-			snap.selfUptime = uptime.String()
+			snap.selfUptime = sysinfo.FormatUptime(uptime)
 		} else {
 			snap.selfUptime = "-"
 		}
@@ -223,7 +208,7 @@ func (p *infoPanel) collectSnapshot() infoSnapshot {
 	if p.app.browserMgr != nil {
 		chromePID = p.app.browserMgr.ManagedPID()
 	}
-	chrome, err := sysinfo.ChromeInfo(chromePID)
+	chrome, err := p.sample.ChromeInfo(chromePID)
 	if err != nil || !chrome.Exists {
 		status := "未启动"
 		if p.app.browserMgr != nil {
@@ -261,7 +246,6 @@ func (p *infoPanel) applySnapshot(snap infoSnapshot) {
 	p.setLabel(p.selfName, &p.cache.selfName, snap.selfName)
 	p.setLabel(p.selfCPU, &p.cache.selfCPU, snap.selfCPU)
 	p.setLabel(p.selfMemory, &p.cache.selfMemory, snap.selfMemory)
-	p.setLabel(p.selfGoHeap, &p.cache.selfGoHeap, snap.selfGoHeap)
 	p.setLabel(p.selfStartTime, &p.cache.selfStartTime, snap.selfStartTime)
 	p.setLabel(p.selfUptime, &p.cache.selfUptime, snap.selfUptime)
 	p.setLabel(p.chromeStatus, &p.cache.chromeStatus, snap.chromeStatus)

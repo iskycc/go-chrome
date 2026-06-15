@@ -217,6 +217,18 @@ func TestFormatStartTime(t *testing.T) {
 	}
 }
 
+func TestFormatUptime(t *testing.T) {
+	if got := FormatUptime(90*time.Second + 250*time.Millisecond); got != "1m30s" {
+		t.Fatalf("FormatUptime without hours: got %q", got)
+	}
+	if got := FormatUptime(2*time.Hour + 3*time.Minute + 4*time.Second + 999*time.Millisecond); got != "2h03m04s" {
+		t.Fatalf("FormatUptime with hours: got %q", got)
+	}
+	if got := FormatUptime(-time.Second); got != "0m00s" {
+		t.Fatalf("FormatUptime negative: got %q", got)
+	}
+}
+
 func TestGoMemStats(t *testing.T) {
 	heapAlloc, heapSys := GoMemStats()
 	if heapAlloc < 0 {
@@ -253,5 +265,47 @@ func TestUptime_ProcessError(t *testing.T) {
 	_, err := Uptime()
 	if err == nil {
 		t.Fatal("expected error from process provider")
+	}
+}
+
+func TestSamplerReusesProcessHandles(t *testing.T) {
+	old := processProvider
+	calls := 0
+	processProvider = func(pid int32) (processHandle, error) {
+		calls++
+		return &fakeProcess{
+			name:       "sampled",
+			mem:        &process.MemoryInfoStat{RSS: 64 * 1024 * 1024},
+			createTime: time.Now().Add(-time.Minute).UnixMilli(),
+		}, nil
+	}
+	defer func() { processProvider = old }()
+
+	sampler := NewSampler()
+	if _, _, _, err := sampler.SelfInfoWithUptime(); err != nil {
+		t.Fatalf("first self sample: %v", err)
+	}
+	if _, _, _, err := sampler.SelfInfoWithUptime(); err != nil {
+		t.Fatalf("second self sample: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected self samples to avoid processProvider, got %d calls", calls)
+	}
+
+	if _, err := sampler.ChromeInfo(42); err != nil {
+		t.Fatalf("first chrome sample: %v", err)
+	}
+	if _, err := sampler.ChromeInfo(42); err != nil {
+		t.Fatalf("second chrome sample: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one processProvider call for same chrome PID, got %d", calls)
+	}
+
+	if _, err := sampler.ChromeInfo(43); err != nil {
+		t.Fatalf("new chrome PID sample: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected processProvider call after chrome PID changed, got %d", calls)
 	}
 }

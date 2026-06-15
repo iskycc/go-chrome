@@ -387,13 +387,12 @@ func (a *App) startBrowser() {
 			return
 		}
 	}
-	port, err := a.browserMgr.Start()
-	if err != nil {
+	if _, err := a.browserMgr.Start(); err != nil {
 		a.runPanel.log("Chrome 启动失败：" + err.Error())
 		fyne.Do(func() { dialog.ShowError(err, a.mainWin) })
 		return
 	}
-	a.runPanel.log(fmt.Sprintf("Chrome 已启动，调试端口：%d", port))
+	a.runPanel.log("Chrome 已启动")
 }
 
 // closeManagedChrome terminates the Chrome instance that this app started.
