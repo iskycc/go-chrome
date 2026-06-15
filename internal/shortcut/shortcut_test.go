@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestCreateNotSupportedOnNonWindows(t *testing.T) {
+	err := Create(Options{ShortcutPath: filepath.Join(t.TempDir(), "test.lnk")})
+	if err == nil {
+		t.Fatal("expected error on non-Windows")
+	}
+}
+
 func TestOptionsFields(t *testing.T) {
 	opts := Options{
 		TargetPath:   `C:\Program Files\go-chrome\go-chrome.exe`,

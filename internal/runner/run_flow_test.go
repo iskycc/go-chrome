@@ -84,12 +84,13 @@ func (e *fakeStepExecutor) ExecuteStep(_ context.Context, step flow.Step, _ *tem
 		errText = e.errors[idx]
 	}
 	return &StepResult{
-		StepID:     step.ID,
-		StepName:   step.Name,
-		Type:       string(step.Type),
-		Status:     status,
-		Error:      errText,
-		DurationMs: 1,
+		StepID:               step.ID,
+		StepName:             step.Name,
+		Type:                 string(step.Type),
+		Status:               status,
+		Error:                errText,
+		DurationMs:           1,
+		GeneratedInputMasked: step.Input.Text,
 	}
 }
 
@@ -285,6 +286,57 @@ func TestRunFlowStopsOnFailedErrStop(t *testing.T) {
 	}
 	if exec.calls != 1 || len(res.Steps) != 1 {
 		t.Fatalf("expected stop after one call, calls=%d steps=%d", exec.calls, len(res.Steps))
+	}
+}
+
+func TestRunFlowWithEnvProviderAndMaskedLog(t *testing.T) {
+	history := &fakeHistorySaver{}
+	exec := &fakeStepExecutor{
+		results: []Status{StatusSuccess},
+	}
+	r := newInjectedRunner(&fakeBrowserController{installed: true}, exec, history)
+
+	provider := envValidationProvider{"BASE_URL": "https://example.test"}
+	step := testStep("open", flow.ErrStop)
+	step.Type = flow.StepInput
+	step.Target.Value = "//input"
+	step.Input.Mode = flow.InputLiteral
+	step.Input.Text = "secret"
+	step.Input.MaskInLogs = true
+
+	res := r.RunFlow(testFlow(step), RunOptions{EnvironmentID: "env-2", EnvProvider: provider})
+	if res.Status != StatusSuccess {
+		t.Fatalf("expected success, got %s", res.Status)
+	}
+	if res.EnvironmentID != "env-2" {
+		t.Fatalf("unexpected env id: %s", res.EnvironmentID)
+	}
+	foundMask := false
+	for _, ev := range drainRunnerEvents(r) {
+		if ev.Type == EventLog && strings.Contains(ev.LogMessage, "输入值已脱敏") {
+			foundMask = true
+		}
+	}
+	if !foundMask {
+		t.Fatal("expected masked input log message")
+	}
+}
+
+func TestRunFlowStopSignal(t *testing.T) {
+	exec := &fakeStepExecutor{results: []Status{StatusSuccess, StatusSuccess}, delay: 200 * time.Millisecond}
+	r := newInjectedRunner(&fakeBrowserController{installed: true}, exec, nil)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		r.Stop()
+	}()
+
+	res := r.RunFlow(testFlow(testStep("slow", flow.ErrStop), testStep("never", flow.ErrStop)), RunOptions{})
+	if res.Status != StatusFailed {
+		t.Fatalf("expected stopped run to fail, got %s", res.Status)
+	}
+	if exec.calls != 1 {
+		t.Fatalf("expected only one step executed before stop, got %d", exec.calls)
 	}
 }
 

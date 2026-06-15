@@ -15,6 +15,23 @@ import (
 	"go-chrome/internal/template"
 )
 
+// chromedpRun is overridable for tests.
+var chromedpRun = chromedp.Run
+
+// queryNodesFunc and queryTextFunc abstract chromedp node queries for tests.
+var (
+	queryNodesFunc = defaultQueryNodes
+	queryTextFunc  = defaultQueryText
+)
+
+func defaultQueryNodes(ctx context.Context, sel interface{}, nodes *[]*cdp.Node, opts ...chromedp.QueryOption) error {
+	return chromedpRun(ctx, chromedp.Nodes(sel, nodes, opts...))
+}
+
+func defaultQueryText(ctx context.Context, sel interface{}, text *string, opts ...chromedp.QueryOption) error {
+	return chromedpRun(ctx, chromedp.Text(sel, text, opts...))
+}
+
 // ActionExecutor performs CDP actions.
 type ActionExecutor struct {
 	cdp        context.Context // chromedp context from browser.CDPClient
@@ -122,7 +139,7 @@ func (a *ActionExecutor) navigate(ctx context.Context, step flow.Step, eng *temp
 	if url == "" {
 		return fmt.Errorf("url is empty")
 	}
-	return chromedp.Run(ctx, chromedp.Navigate(url))
+	return chromedpRun(ctx, chromedp.Navigate(url))
 }
 
 func (a *ActionExecutor) click(ctx context.Context, step flow.Step, eng *template.Engine) error {
@@ -131,13 +148,13 @@ func (a *ActionExecutor) click(ctx context.Context, step flow.Step, eng *templat
 		return err
 	}
 	var nodes []*cdp.Node
-	if err := chromedp.Run(ctx, chromedp.Nodes(xpath, &nodes, chromedp.NodeVisible)); err != nil {
+	if err := queryNodesFunc(ctx, xpath, &nodes, chromedp.NodeVisible); err != nil {
 		return fmt.Errorf("find element: %w", err)
 	}
 	if len(nodes) == 0 {
 		return fmt.Errorf("no element found for xpath: %s", xpath)
 	}
-	return chromedp.Run(ctx, chromedp.MouseClickNode(nodes[0]))
+	return chromedpRun(ctx, chromedp.MouseClickNode(nodes[0]))
 }
 
 func (a *ActionExecutor) input(ctx context.Context, step flow.Step, eng *template.Engine, res *StepResult) error {
@@ -150,7 +167,7 @@ func (a *ActionExecutor) input(ctx context.Context, step flow.Step, eng *templat
 	if err != nil {
 		return err
 	}
-	if err := chromedp.Run(ctx, chromedp.SendKeys(xpath, input.Value, chromedp.BySearch)); err != nil {
+	if err := chromedpRun(ctx, chromedp.SendKeys(xpath, input.Value, chromedp.BySearch)); err != nil {
 		return fmt.Errorf("input: %w", err)
 	}
 	return nil
@@ -166,7 +183,7 @@ func (a *ActionExecutor) clearAndInput(ctx context.Context, step flow.Step, eng 
 	if err != nil {
 		return err
 	}
-	if err := chromedp.Run(ctx,
+	if err := chromedpRun(ctx,
 		chromedp.Clear(xpath, chromedp.BySearch),
 		chromedp.SendKeys(xpath, input.Value, chromedp.BySearch),
 	); err != nil {
@@ -180,7 +197,7 @@ func (a *ActionExecutor) waitPresent(ctx context.Context, step flow.Step, eng *t
 	if err != nil {
 		return err
 	}
-	return chromedp.Run(ctx, chromedp.WaitReady(xpath, chromedp.BySearch))
+	return chromedpRun(ctx, chromedp.WaitReady(xpath, chromedp.BySearch))
 }
 
 func (a *ActionExecutor) waitVisible(ctx context.Context, step flow.Step, eng *template.Engine) error {
@@ -188,7 +205,7 @@ func (a *ActionExecutor) waitVisible(ctx context.Context, step flow.Step, eng *t
 	if err != nil {
 		return err
 	}
-	return chromedp.Run(ctx, chromedp.WaitVisible(xpath, chromedp.BySearch))
+	return chromedpRun(ctx, chromedp.WaitVisible(xpath, chromedp.BySearch))
 }
 
 func (a *ActionExecutor) waitFixed(ctx context.Context, step flow.Step, eng *template.Engine) error {
@@ -226,7 +243,7 @@ func (a *ActionExecutor) getText(ctx context.Context, step flow.Step, eng *templ
 		return err
 	}
 	var text string
-	if err := chromedp.Run(ctx, chromedp.Text(xpath, &text, chromedp.BySearch)); err != nil {
+	if err := queryTextFunc(ctx, xpath, &text, chromedp.BySearch); err != nil {
 		return fmt.Errorf("get text: %w", err)
 	}
 	return nil
@@ -238,7 +255,7 @@ func (a *ActionExecutor) assertExists(ctx context.Context, step flow.Step, eng *
 		return err
 	}
 	var nodes []*cdp.Node
-	if err := chromedp.Run(ctx, chromedp.Nodes(xpath, &nodes, chromedp.BySearch)); err != nil {
+	if err := queryNodesFunc(ctx, xpath, &nodes, chromedp.BySearch); err != nil {
 		return fmt.Errorf("assert exists: %w", err)
 	}
 	if len(nodes) == 0 {
@@ -257,7 +274,7 @@ func (a *ActionExecutor) assertText(ctx context.Context, step flow.Step, eng *te
 		return err
 	}
 	var text string
-	if err := chromedp.Run(ctx, chromedp.Text(xpath, &text, chromedp.BySearch)); err != nil {
+	if err := queryTextFunc(ctx, xpath, &text, chromedp.BySearch); err != nil {
 		return fmt.Errorf("assert text: %w", err)
 	}
 	if !strings.Contains(text, expected) {
@@ -277,7 +294,7 @@ func (a *ActionExecutor) screenshot(ctx context.Context, res *StepResult) error 
 
 func (a *ActionExecutor) captureScreenshot(ctx context.Context) (string, error) {
 	var buf []byte
-	if err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
+	if err := chromedpRun(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
 		return "", err
 	}
 	fname := filepath.Join(a.dir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixMilli()))
@@ -289,7 +306,7 @@ func (a *ActionExecutor) captureScreenshot(ctx context.Context) (string, error) 
 
 func (a *ActionExecutor) captureHTML(ctx context.Context) (string, error) {
 	var html string
-	if err := chromedp.Run(ctx, chromedp.OuterHTML("html", &html)); err != nil {
+	if err := chromedpRun(ctx, chromedp.OuterHTML("html", &html)); err != nil {
 		return "", err
 	}
 	fname := filepath.Join(a.dir, fmt.Sprintf("page-%d.html", time.Now().UnixMilli()))

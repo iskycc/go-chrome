@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// readFileFunc is overridable for tests.
+var readFileFunc = os.ReadFile
+
 func systemStaticInfo() SystemSnapshot {
 	snap := SystemSnapshot{
 		OSName:      osReleaseValue("PRETTY_NAME"),
@@ -25,7 +28,7 @@ func systemStaticInfo() SystemSnapshot {
 }
 
 func systemCPUTimesNow() (systemCPUTimes, bool) {
-	data, err := os.ReadFile("/proc/stat")
+	data, err := readFileFunc("/proc/stat")
 	if err != nil {
 		return systemCPUTimes{}, false
 	}
@@ -77,7 +80,7 @@ func fillSystemMemory(snap *SystemSnapshot) {
 }
 
 func fillLinuxCPUInfo(snap *SystemSnapshot) {
-	data, err := os.ReadFile("/proc/cpuinfo")
+	data, err := readFileFunc("/proc/cpuinfo")
 	if err != nil {
 		return
 	}
@@ -137,7 +140,7 @@ func fillLinuxCPUInfo(snap *SystemSnapshot) {
 }
 
 func linuxMemInfo() map[string]int64 {
-	data, err := os.ReadFile("/proc/meminfo")
+	data, err := readFileFunc("/proc/meminfo")
 	if err != nil {
 		return nil
 	}
@@ -160,7 +163,7 @@ func linuxMemInfo() map[string]int64 {
 }
 
 func osReleaseValue(key string) string {
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := readFileFunc("/etc/os-release")
 	if err != nil {
 		return ""
 	}
@@ -175,7 +178,7 @@ func osReleaseValue(key string) string {
 }
 
 func readTrimmed(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := readFileFunc(path)
 	if err != nil {
 		return ""
 	}

@@ -20,7 +20,7 @@ func currentProcessName() string {
 	return filepath.Base(exe)
 }
 
-func currentProcessRSSMB() (float64, error) {
+var currentProcessRSSMB = func() (float64, error) {
 	data, err := os.ReadFile("/proc/self/status")
 	if err != nil {
 		return 0, err
@@ -42,7 +42,7 @@ func currentProcessRSSMB() (float64, error) {
 	return 0, nil
 }
 
-func currentProcessCPUTime() (time.Duration, error) {
+var currentProcessCPUTime = func() (time.Duration, error) {
 	data, err := os.ReadFile("/proc/self/stat")
 	if err != nil {
 		return 0, err

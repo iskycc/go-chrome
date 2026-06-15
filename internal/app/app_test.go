@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,5 +49,26 @@ func TestExecutableDir(t *testing.T) {
 	}
 	if !filepath.IsAbs(dir) {
 		t.Fatalf("expected absolute executable dir, got %s", dir)
+	}
+}
+
+func TestExecutableDirError(t *testing.T) {
+	orig := executableFunc
+	executableFunc = func() (string, error) { return "", errors.New("mock exec error") }
+	defer func() { executableFunc = orig }()
+
+	_, err := ExecutableDir()
+	if err == nil {
+		t.Fatal("expected error from executableFunc")
+	}
+}
+
+func TestEnsureDirsMkdirAllError(t *testing.T) {
+	orig := mkdirAllFunc
+	mkdirAllFunc = func(path string, perm os.FileMode) error { return errors.New("mock mkdir error") }
+	defer func() { mkdirAllFunc = orig }()
+
+	if _, err := EnsureDirs(t.TempDir()); err == nil {
+		t.Fatal("expected mkdir error")
 	}
 }

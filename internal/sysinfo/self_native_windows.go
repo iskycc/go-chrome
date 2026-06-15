@@ -35,7 +35,7 @@ func currentProcessName() string {
 	return filepath.Base(exe)
 }
 
-func currentProcessRSSMB() (float64, error) {
+var currentProcessRSSMB = func() (float64, error) {
 	handle, err := windows.GetCurrentProcess()
 	if err != nil {
 		return 0, err
@@ -57,7 +57,7 @@ func currentProcessRSSMB() (float64, error) {
 	return float64(counters.workingSetSize) / 1024 / 1024, nil
 }
 
-func currentProcessCPUTime() (time.Duration, error) {
+var currentProcessCPUTime = func() (time.Duration, error) {
 	handle, err := windows.GetCurrentProcess()
 	if err != nil {
 		return 0, err

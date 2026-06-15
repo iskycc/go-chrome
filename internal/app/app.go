@@ -6,6 +6,12 @@ import (
 	"path/filepath"
 )
 
+// Overridable for testing.
+var (
+	executableFunc = os.Executable
+	mkdirAllFunc   = os.MkdirAll
+)
+
 // Directories holds application directory paths.
 type Directories struct {
 	DataDir    string
@@ -25,7 +31,7 @@ func EnsureDirs(base string) (*Directories, error) {
 		ConfigPath: filepath.Join(base, "data", "app-config.json"),
 	}
 	for _, d := range []string{dirs.DataDir, dirs.LogsDir, dirs.ChromeDir} {
-		if err := os.MkdirAll(d, 0755); err != nil {
+		if err := mkdirAllFunc(d, 0755); err != nil {
 			return nil, fmt.Errorf("create dir %s: %w", d, err)
 		}
 	}
@@ -34,7 +40,7 @@ func EnsureDirs(base string) (*Directories, error) {
 
 // ExecutableDir returns the directory of the current executable.
 func ExecutableDir() (string, error) {
-	ex, err := os.Executable()
+	ex, err := executableFunc()
 	if err != nil {
 		return "", err
 	}

@@ -312,6 +312,171 @@ func TestUptime_ProcessError(t *testing.T) {
 	}
 }
 
+func TestSystemStaticInfoErrors(t *testing.T) {
+	old := readFileFunc
+	readFileFunc = func(name string) ([]byte, error) { return nil, errors.New("mock read error") }
+	defer func() { readFileFunc = old }()
+
+	snap := systemStaticInfo()
+	if snap.OSName != runtime.GOOS {
+		t.Fatalf("expected fallback OSName, got %q", snap.OSName)
+	}
+	if snap.Kernel != "" {
+		t.Fatalf("expected empty kernel on error, got %q", snap.Kernel)
+	}
+	// Hostname uses os.Hostname() directly and cannot be mocked here.
+}
+
+func TestSystemCPUTimesNowErrors(t *testing.T) {
+	old := readFileFunc
+	defer func() { readFileFunc = old }()
+
+	readFileFunc = func(name string) ([]byte, error) { return nil, errors.New("mock") }
+	if _, ok := systemCPUTimesNow(); ok {
+		t.Fatal("expected false on read error")
+	}
+
+	readFileFunc = func(name string) ([]byte, error) { return []byte("cpu 1 2 3\n"), nil }
+	if _, ok := systemCPUTimesNow(); ok {
+		t.Fatal("expected false with too few fields")
+	}
+
+	readFileFunc = func(name string) ([]byte, error) { return []byte("cpu 1 two 3 4\n"), nil }
+	if _, ok := systemCPUTimesNow(); ok {
+		t.Fatal("expected false with invalid number")
+	}
+}
+
+func TestLinuxMemInfoErrors(t *testing.T) {
+	old := readFileFunc
+	defer func() { readFileFunc = old }()
+
+	readFileFunc = func(name string) ([]byte, error) { return nil, errors.New("mock") }
+	if linuxMemInfo() != nil {
+		t.Fatal("expected nil on read error")
+	}
+
+	readFileFunc = func(name string) ([]byte, error) { return []byte("MemTotal: 1024 kB\nMemAvailable: not-a-number kB\n"), nil }
+	mem := linuxMemInfo()
+	if mem["MemTotal"] != 1024 {
+		t.Fatalf("expected MemTotal=1024, got %d", mem["MemTotal"])
+	}
+	if _, ok := mem["MemAvailable"]; ok {
+		t.Fatal("expected MemAvailable skipped")
+	}
+}
+
+func TestFillSystemMemoryEdgeCases(t *testing.T) {
+	old := readFileFunc
+	defer func() { readFileFunc = old }()
+
+	readFileFunc = func(name string) ([]byte, error) { return []byte("MemTotal: 0 kB\n"), nil }
+	snap := SystemSnapshot{}
+	fillSystemMemory(&snap)
+	if snap.MemoryTotalMB != 0 {
+		t.Fatalf("expected zero memory when totalKB <= 0, got %f", snap.MemoryTotalMB)
+	}
+}
+
+func TestOsReleaseValueFallback(t *testing.T) {
+	old := readFileFunc
+	defer func() { readFileFunc = old }()
+
+	readFileFunc = func(name string) ([]byte, error) { return []byte("NAME=\"TestOS\"\n"), nil }
+	if got := osReleaseValue("PRETTY_NAME"); got != "" {
+		t.Fatalf("expected empty for missing key, got %q", got)
+	}
+	if got := osReleaseValue("NAME"); got != "TestOS" {
+		t.Fatalf("expected TestOS, got %q", got)
+	}
+}
+
+func TestSplitColonLine(t *testing.T) {
+	if k, v, ok := splitColonLine("key: value"); !ok || k != "key" || v != "value" {
+		t.Fatalf("splitColonLine failed: %q %q %v", k, v, ok)
+	}
+	if _, _, ok := splitColonLine("no colon"); ok {
+		t.Fatal("expected no colon to fail")
+	}
+}
+
+func TestSamplerSystemInfoTwice(t *testing.T) {
+	sampler := NewSampler()
+	_, err := sampler.SystemInfo()
+	if err != nil {
+		t.Fatalf("first SystemInfo: %v", err)
+	}
+	info, err := sampler.SystemInfo()
+	if err != nil {
+		t.Fatalf("second SystemInfo: %v", err)
+	}
+	if info.CPUUsage < 0 {
+		t.Fatalf("expected non-negative cpu usage, got %f", info.CPUUsage)
+	}
+}
+
+func TestSamplerChromeInfoReset(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses native process sampling")
+	}
+	old := processProvider
+	calls := 0
+	processProvider = func(pid int32) (processHandle, error) {
+		calls++
+		return &fakeProcess{name: "chrome", mem: &process.MemoryInfoStat{RSS: 64 * 1024 * 1024}}, nil
+	}
+	defer func() { processProvider = old }()
+
+	sampler := NewSampler()
+	if _, err := sampler.ChromeInfo(42); err != nil {
+		t.Fatalf("chrome info: %v", err)
+	}
+	if _, err := sampler.ChromeInfo(0); err != nil {
+		t.Fatalf("chrome info zero: %v", err)
+	}
+	if _, err := sampler.ChromeInfo(42); err != nil {
+		t.Fatalf("chrome info after reset: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 processProvider calls after reset, got %d", calls)
+	}
+}
+
+func TestInfoFromProcessCreateTimeError(t *testing.T) {
+	old := processProvider
+	processProvider = func(pid int32) (processHandle, error) {
+		return &fakeProcess{
+			name:       "p",
+			createErr:  errors.New("create time error"),
+			createTime: 0,
+			mem:        &process.MemoryInfoStat{RSS: 64 * 1024 * 1024},
+		}, nil
+	}
+	defer func() { processProvider = old }()
+
+	start, err := StartTime()
+	if err == nil {
+		t.Fatal("expected create time error")
+	}
+	if !start.IsZero() {
+		t.Fatalf("expected zero start time on error, got %v", start)
+	}
+}
+
+func TestSelfInfoWithUptimeMemoryError(t *testing.T) {
+	oldRSS := currentProcessRSSMB
+	currentProcessRSSMB = func() (float64, error) { return 0, errors.New("rss error") }
+	defer func() { currentProcessRSSMB = oldRSS }()
+
+	info, _, _, err := SelfInfoWithUptime()
+	if err != nil {
+		t.Fatalf("SelfInfoWithUptime: %v", err)
+	}
+	if info.MemoryMB != 0 {
+		t.Fatalf("expected zero memory on rss error, got %f", info.MemoryMB)
+	}
+}
+
 func TestSamplerReusesProcessHandles(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows uses native process sampling instead of cached gopsutil handles")

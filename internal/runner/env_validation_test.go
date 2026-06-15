@@ -34,6 +34,25 @@ func TestMissingEnvVarsScansEnabledStepsFromStart(t *testing.T) {
 	}
 }
 
+func TestMissingEnvVarsEdgeCases(t *testing.T) {
+	if missing := MissingEnvVars(nil, 0, nil); missing != nil {
+		t.Fatalf("expected nil for nil flow, got %v", missing)
+	}
+	f := flow.NewFlow("empty")
+	if missing := MissingEnvVars(f, 0, nil); missing != nil {
+		t.Fatalf("expected nil for empty flow, got %v", missing)
+	}
+	step := flow.NewStep("open", flow.StepNavigate)
+	step.Target.Value = "${env:BASE_URL}"
+	f.Steps = []flow.Step{step}
+	if missing := MissingEnvVars(f, 1, nil); missing != nil {
+		t.Fatalf("expected nil when startStep past end, got %v", missing)
+	}
+	if missing := MissingEnvVars(f, -1, envValidationProvider{"BASE_URL": "x"}); len(missing) != 0 {
+		t.Fatalf("expected negative startStep normalized, got %v", missing)
+	}
+}
+
 func TestMissingEnvVarsNoProviderOnlyWhenReferencesExist(t *testing.T) {
 	f := flow.NewFlow("env")
 	noEnv := flow.NewStep("wait", flow.StepWaitFixed)

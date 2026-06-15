@@ -240,3 +240,28 @@ func TestStepRunnerStopIsNoopWhenNotStarted(t *testing.T) {
 	// Should not panic on a never-initialized runner.
 	sr.Stop()
 }
+
+func TestStepRunnerNextStoppedBranch(t *testing.T) {
+	exec := &fakeStepExecutor{results: []Status{StatusSuccess}}
+	sr := initializedStepRunner(exec, nil, testStep("only", flow.ErrStop))
+	sr.stopped = true
+	res, finished, err := sr.Next()
+	if err != nil || !finished || res != nil {
+		t.Fatalf("expected nil,true,nil when stopped, got res=%+v finished=%v err=%v", res, finished, err)
+	}
+	if sr.result.Status != StatusSuccess {
+		t.Fatalf("expected success status when stopped with no failures, got %s", sr.result.Status)
+	}
+}
+
+func TestStepRunnerNextSkippedCount(t *testing.T) {
+	exec := &fakeStepExecutor{results: []Status{StatusSkipped}}
+	sr := initializedStepRunner(exec, nil, testStep("skip", flow.ErrStop))
+	res, finished, err := sr.Next()
+	if err != nil || !finished || res.Status != StatusSkipped {
+		t.Fatalf("expected skipped finish, got res=%+v finished=%v err=%v", res, finished, err)
+	}
+	if sr.result.SkippedCount != 1 {
+		t.Fatalf("expected skipped count 1, got %d", sr.result.SkippedCount)
+	}
+}

@@ -17,6 +17,19 @@ func TestNewRunnerBasics(t *testing.T) {
 	r.Close()
 }
 
+func TestRunnerCloseClosesCDP(t *testing.T) {
+	r := NewRunner(&config.RunnerConfig{}, nil, nil)
+	cdp := &fakeCDPSession{}
+	r.cdp = cdp
+	r.Close()
+	if !cdp.closed {
+		t.Fatal("expected cdp session closed")
+	}
+	if r.cdp != nil {
+		t.Fatal("expected cdp cleared")
+	}
+}
+
 func TestRunnerStopSignalIsBufferedAndDrained(t *testing.T) {
 	r := NewRunner(&config.RunnerConfig{}, nil, nil)
 	r.Stop()
