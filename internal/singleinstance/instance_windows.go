@@ -19,16 +19,13 @@ import (
 
 const mutexName = `Global\go-chrome-single-instance`
 
-var (
-	mutexHandle windows.Handle
-	mutexOnce   sync.Once
-)
-
 type windowsInstance struct {
-	listener net.Listener
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	portFile string
+	listener    net.Listener
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	connWg      sync.WaitGroup
+	portFile    string
+	mutexHandle windows.Handle
 }
 
 func TryStart(ctx context.Context, req RunRequest, h Handler) (Result, *Instance, error) {
@@ -43,7 +40,6 @@ func TryStart(ctx context.Context, req RunRequest, h Handler) (Result, *Instance
 		}
 		return ResultFallback, nil, fmt.Errorf("create mutex: %w", err)
 	}
-	mutexHandle = handle
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -64,7 +60,7 @@ func TryStart(ctx context.Context, req RunRequest, h Handler) (Result, *Instance
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	wi := &windowsInstance{listener: listener, cancel: cancel, portFile: portFile}
+	wi := &windowsInstance{listener: listener, cancel: cancel, portFile: portFile, mutexHandle: handle}
 	wi.wg.Add(1)
 	go wi.serve(ctx, h)
 
@@ -83,11 +79,13 @@ func (wi *windowsInstance) serve(ctx context.Context, h Handler) {
 				continue
 			}
 		}
+		wi.connWg.Add(1)
 		go wi.handleConn(conn, h)
 	}
 }
 
 func (wi *windowsInstance) handleConn(conn net.Conn, h Handler) {
+	defer wi.connWg.Done()
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	line, err := bufio.NewReader(conn).ReadString('\n')
@@ -107,10 +105,11 @@ func (wi *windowsInstance) shutdown() {
 	wi.cancel()
 	_ = wi.listener.Close()
 	wi.wg.Wait()
+	wi.connWg.Wait()
 	_ = os.Remove(wi.portFile)
-	if mutexHandle != 0 {
-		windows.CloseHandle(mutexHandle)
-		mutexHandle = 0
+	if wi.mutexHandle != 0 {
+		windows.CloseHandle(wi.mutexHandle)
+		wi.mutexHandle = 0
 	}
 }
 
