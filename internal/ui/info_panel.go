@@ -41,6 +41,7 @@ type infoPanel struct {
 	stopRefresh   chan struct{}
 	refreshWg     sync.WaitGroup
 	refreshing    atomic.Bool
+	lastRefresh   atomic.Int64
 	visible       bool
 
 	// Cached values to avoid calling SetText when nothing changed.
@@ -58,6 +59,8 @@ type infoPanel struct {
 		chromeMemory  string
 	}
 }
+
+const infoPanelMinRefreshInterval = time.Second
 
 func newInfoPanel(app *App) *infoPanel {
 	p := &infoPanel{app: app, sample: sysinfo.NewSampler()}
@@ -156,15 +159,35 @@ func (p *infoPanel) stopAutoRefresh() {
 }
 
 func (p *infoPanel) refresh() {
-	if !p.refreshing.CompareAndSwap(false, true) {
+	if !p.beginRefresh() {
 		return
 	}
-	defer p.refreshing.Store(false)
 
 	snap := p.collectSnapshot()
 	fyne.Do(func() {
-		p.applySnapshot(snap)
+		defer p.refreshing.Store(false)
+		if p.visible {
+			p.applySnapshot(snap)
+			p.lastRefresh.Store(time.Now().UnixNano())
+		}
 	})
+}
+
+func (p *infoPanel) beginRefresh() bool {
+	now := time.Now()
+	last := p.lastRefresh.Load()
+	if last > 0 && now.Sub(time.Unix(0, last)) < infoPanelMinRefreshInterval {
+		return false
+	}
+	if !p.refreshing.CompareAndSwap(false, true) {
+		return false
+	}
+	last = p.lastRefresh.Load()
+	if last > 0 && now.Sub(time.Unix(0, last)) < infoPanelMinRefreshInterval {
+		p.refreshing.Store(false)
+		return false
+	}
+	return true
 }
 
 type infoSnapshot struct {

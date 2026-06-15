@@ -58,6 +58,30 @@ func TestInfoPanelRefreshWithoutPanic(t *testing.T) {
 	panel.refresh()
 }
 
+func TestInfoPanelBeginRefreshThrottlesAndSkipsInFlight(t *testing.T) {
+	app := &App{
+		fyneApp: test.NewApp(),
+	}
+	panel := newInfoPanel(app)
+
+	panel.lastRefresh.Store(time.Now().UnixNano())
+	if panel.beginRefresh() {
+		t.Fatal("expected recent refresh to be throttled")
+	}
+
+	panel.lastRefresh.Store(time.Now().Add(-2 * infoPanelMinRefreshInterval).UnixNano())
+	if !panel.beginRefresh() {
+		t.Fatal("expected refresh to start after throttle window")
+	}
+	if !panel.refreshing.Load() {
+		t.Fatal("expected refreshing flag to be set")
+	}
+	if panel.beginRefresh() {
+		t.Fatal("expected in-flight refresh to be skipped")
+	}
+	panel.refreshing.Store(false)
+}
+
 func TestInfoPanelSetVisible(t *testing.T) {
 	app := &App{
 		fyneApp: test.NewApp(),
