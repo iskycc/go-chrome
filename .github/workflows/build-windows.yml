@@ -1,0 +1,51 @@
+name: Build Windows Packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install fyne-cross
+        run: |
+          go install github.com/fyne-io/fyne-cross@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Download embedded font
+        run: |
+          mkdir -p assets/fonts
+          curl -L -o /tmp/MapleMono-CN.zip https://github.com/subframe7536/maple-font/releases/download/v7.9/MapleMono-CN.zip
+          unzip -j /tmp/MapleMono-CN.zip -d assets/fonts 'MapleMono-CN-Regular.ttf'
+          rm -f /tmp/MapleMono-CN.zip
+
+      - name: Build Windows binaries (amd64, 386, arm64)
+        run: |
+          fyne-cross windows --pull -arch=amd64,386,arm64 -output go-chrome ./cmd/go-chrome
+
+      - name: Package release archives
+        run: |
+          mkdir -p dist
+          for d in fyne-cross/dist/windows-*; do
+            [ -d "$d" ] || continue
+            arch=$(basename "$d" | sed 's/windows-//')
+            cp README.md FAQ.md USER_GUIDE.md "$d/" 2>/dev/null || true
+            mkdir -p "$d/data" "$d/logs" "$d/chrome"
+            (cd "$d" && zip -r "../../dist/go-chrome-windows-${arch}.zip" .)
+          done
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-chrome-windows-packages
+          path: dist/*.zip
