@@ -133,42 +133,44 @@ func newInfoPanel(app *App) *infoPanel {
 	p.chromeCPU = widget.NewLabel("")
 	p.chromeMemory = widget.NewLabel("")
 
-	systemForm := widget.NewForm(
-		widget.NewFormItem("系统", p.systemOS),
-		widget.NewFormItem("版本", p.systemVersion),
-		widget.NewFormItem("构建", p.systemBuild),
-		widget.NewFormItem("内核", p.systemKernel),
-		widget.NewFormItem("架构", p.systemArch),
-		widget.NewFormItem("主机名", p.systemHostname),
-		widget.NewFormItem("CPU 型号", p.systemCPUModel),
-		widget.NewFormItem("CPU 厂商", p.systemCPUVendor),
-		widget.NewFormItem("CPU 标识", p.systemCPUIdentifier),
-		widget.NewFormItem("CPU 频率", p.systemCPUMHz),
-		widget.NewFormItem("CPU 核心", p.systemCPUCores),
-		widget.NewFormItem("CPU 占用", p.systemCPUUsage),
-		widget.NewFormItem("总内存", p.systemMemoryTotal),
-		widget.NewFormItem("可用内存", p.systemMemoryAvailable),
-		widget.NewFormItem("已用内存", p.systemMemoryUsed),
-		widget.NewFormItem("内存占用", p.systemMemoryUsage),
+	p.prepareValueLabels()
+
+	systemGrid := metricGrid(3, 300,
+		metricField("系统", p.systemOS),
+		metricField("版本", p.systemVersion),
+		metricField("构建", p.systemBuild),
+		metricField("内核", p.systemKernel),
+		metricField("架构", p.systemArch),
+		metricField("主机名", p.systemHostname),
+		metricField("CPU 型号", p.systemCPUModel),
+		metricField("CPU 厂商", p.systemCPUVendor),
+		metricField("CPU 标识", p.systemCPUIdentifier),
+		metricField("CPU 频率", p.systemCPUMHz),
+		metricField("CPU 核心", p.systemCPUCores),
+		metricField("CPU 占用", p.systemCPUUsage),
+		metricField("总内存", p.systemMemoryTotal),
+		metricField("可用内存", p.systemMemoryAvailable),
+		metricField("已用内存", p.systemMemoryUsed),
+		metricField("内存占用", p.systemMemoryUsage),
 	)
 
-	selfForm := widget.NewForm(
-		widget.NewFormItem("PID", p.selfPID),
-		widget.NewFormItem("名称", p.selfName),
-		widget.NewFormItem("CPU", p.selfCPU),
-		widget.NewFormItem("内存 (RSS)", p.selfMemory),
-		widget.NewFormItem("Go 堆已用", p.selfHeapAlloc),
-		widget.NewFormItem("Go 堆保留", p.selfHeapSys),
-		widget.NewFormItem("启动时间", p.selfStartTime),
-		widget.NewFormItem("运行时长", p.selfUptime),
+	selfGrid := metricGrid(2, 280,
+		metricField("PID", p.selfPID),
+		metricField("名称", p.selfName),
+		metricField("CPU", p.selfCPU),
+		metricField("内存 (RSS)", p.selfMemory),
+		metricField("Go 堆已用", p.selfHeapAlloc),
+		metricField("Go 堆保留", p.selfHeapSys),
+		metricField("启动时间", p.selfStartTime),
+		metricField("运行时长", p.selfUptime),
 	)
 
-	chromeForm := widget.NewForm(
-		widget.NewFormItem("状态", p.chromeStatus),
-		widget.NewFormItem("PID", p.chromePID),
-		widget.NewFormItem("名称", p.chromeName),
-		widget.NewFormItem("CPU", p.chromeCPU),
-		widget.NewFormItem("内存", p.chromeMemory),
+	chromeGrid := metricGrid(2, 280,
+		metricField("状态", p.chromeStatus),
+		metricField("PID", p.chromePID),
+		metricField("名称", p.chromeName),
+		metricField("CPU", p.chromeCPU),
+		metricField("内存", p.chromeMemory),
 	)
 
 	refreshBtn := widget.NewButtonWithIcon("刷新", theme.ViewRefreshIcon(), func() {
@@ -179,17 +181,150 @@ func newInfoPanel(app *App) *infoPanel {
 	content := container.NewVBox(
 		newSectionHeader("系统信息", refreshBtn),
 		newMutedText(fmt.Sprintf("平台：%s/%s", runtime.GOOS, runtime.GOARCH)),
-		systemForm,
+		systemGrid,
 
-		newSectionHeader("当前程序"),
-		selfForm,
-
-		newSectionHeader("托管 Chrome"),
-		chromeForm,
+		responsiveGrid(2, 420,
+			container.NewVBox(newSectionHeader("当前程序"), selfGrid),
+			container.NewVBox(newSectionHeader("托管 Chrome"), chromeGrid),
+		),
 	)
 
 	p.widget = container.NewScroll(content)
 	return p
+}
+
+func (p *infoPanel) prepareValueLabels() {
+	for _, label := range []*widget.Label{
+		p.systemOS, p.systemVersion, p.systemBuild, p.systemKernel,
+		p.systemArch, p.systemHostname, p.systemCPUModel, p.systemCPUVendor,
+		p.systemCPUIdentifier, p.systemCPUMHz, p.systemCPUCores, p.systemCPUUsage,
+		p.systemMemoryTotal, p.systemMemoryAvailable, p.systemMemoryUsed, p.systemMemoryUsage,
+		p.selfPID, p.selfName, p.selfCPU, p.selfMemory, p.selfHeapAlloc, p.selfHeapSys,
+		p.selfStartTime, p.selfUptime, p.chromeStatus, p.chromePID, p.chromeName,
+		p.chromeCPU, p.chromeMemory,
+	} {
+		label.Wrapping = fyne.TextWrapWord
+	}
+}
+
+type metricFieldSpec struct {
+	name  string
+	value *widget.Label
+}
+
+func metricField(name string, value *widget.Label) metricFieldSpec {
+	return metricFieldSpec{name: name, value: value}
+}
+
+func metricGrid(maxColumns int, minColumnWidth float32, fields ...metricFieldSpec) fyne.CanvasObject {
+	items := make([]fyne.CanvasObject, 0, len(fields))
+	for _, field := range fields {
+		items = append(items, metricRow(field.name, field.value))
+	}
+	return responsiveGrid(maxColumns, minColumnWidth, items...)
+}
+
+func responsiveGrid(maxColumns int, minColumnWidth float32, items ...fyne.CanvasObject) fyne.CanvasObject {
+	return container.New(newResponsiveGridLayout(maxColumns, minColumnWidth), items...)
+}
+
+func metricRow(name string, value *widget.Label) fyne.CanvasObject {
+	nameLabel := newMutedText(name)
+	nameBox := container.NewGridWrap(fyne.NewSize(76, nameLabel.MinSize().Height), nameLabel)
+	return container.NewBorder(nil, nil, nameBox, nil, value)
+}
+
+type responsiveGridLayout struct {
+	maxColumns     int
+	minColumnWidth float32
+}
+
+func newResponsiveGridLayout(maxColumns int, minColumnWidth float32) *responsiveGridLayout {
+	if maxColumns < 1 {
+		maxColumns = 1
+	}
+	if minColumnWidth < 1 {
+		minColumnWidth = 1
+	}
+	return &responsiveGridLayout{maxColumns: maxColumns, minColumnWidth: minColumnWidth}
+}
+
+func (l *responsiveGridLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	visible := visibleObjects(objects)
+	if len(visible) == 0 {
+		return
+	}
+	cols := l.columnsForWidth(size.Width)
+	gap := theme.Padding()
+	cellWidth := (size.Width - gap*float32(cols-1)) / float32(cols)
+	if cellWidth < 0 {
+		cellWidth = 0
+	}
+
+	y := float32(0)
+	for rowStart := 0; rowStart < len(visible); rowStart += cols {
+		rowEnd := rowStart + cols
+		if rowEnd > len(visible) {
+			rowEnd = len(visible)
+		}
+		rowHeight := float32(0)
+		for i := rowStart; i < rowEnd; i++ {
+			if h := visible[i].MinSize().Height; h > rowHeight {
+				rowHeight = h
+			}
+		}
+		for i := rowStart; i < rowEnd; i++ {
+			col := i - rowStart
+			visible[i].Move(fyne.NewPos(float32(col)*(cellWidth+gap), y))
+			visible[i].Resize(fyne.NewSize(cellWidth, rowHeight))
+		}
+		y += rowHeight + gap
+	}
+}
+
+func (l *responsiveGridLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	visible := visibleObjects(objects)
+	if len(visible) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+	width := float32(0)
+	height := float32(0)
+	gap := theme.Padding()
+	for i, obj := range visible {
+		size := obj.MinSize()
+		if size.Width > width {
+			width = size.Width
+		}
+		height += size.Height
+		if i > 0 {
+			height += gap
+		}
+	}
+	if width < l.minColumnWidth {
+		width = l.minColumnWidth
+	}
+	return fyne.NewSize(width, height)
+}
+
+func (l *responsiveGridLayout) columnsForWidth(width float32) int {
+	cols := int((width + theme.Padding()) / (l.minColumnWidth + theme.Padding()))
+	if cols < 1 {
+		cols = 1
+	}
+	if cols > l.maxColumns {
+		cols = l.maxColumns
+	}
+	return cols
+}
+
+func visibleObjects(objects []fyne.CanvasObject) []fyne.CanvasObject {
+	visible := make([]fyne.CanvasObject, 0, len(objects))
+	for _, obj := range objects {
+		if obj.Visible() {
+			visible = append(visible, obj)
+		}
+	}
+	return visible
 }
 
 // SetVisible starts or stops automatic refreshing based on whether the info

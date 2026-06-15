@@ -124,3 +124,17 @@ func TestInfoPanelSetLabel(t *testing.T) {
 		t.Fatalf("expected unchanged label, got %q / cache %q", label.Text, cache)
 	}
 }
+
+func TestResponsiveGridLayoutColumnsForWidth(t *testing.T) {
+	layout := newResponsiveGridLayout(3, 300)
+
+	if got := layout.columnsForWidth(240); got != 1 {
+		t.Fatalf("expected one column for narrow width, got %d", got)
+	}
+	if got := layout.columnsForWidth(650); got != 2 {
+		t.Fatalf("expected two columns for medium width, got %d", got)
+	}
+	if got := layout.columnsForWidth(1200); got != 3 {
+		t.Fatalf("expected max three columns for wide width, got %d", got)
+	}
+}
