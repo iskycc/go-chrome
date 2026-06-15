@@ -39,6 +39,24 @@ func SelfInfo() (ProcessSnapshot, error) {
 	return infoForPID(int32(os.Getpid()))
 }
 
+// SelfInfoWithUptime returns the current process resource usage together with
+// its start time and uptime using a single process handle.
+func SelfInfoWithUptime() (ProcessSnapshot, time.Time, time.Duration, error) {
+	pid := int32(os.Getpid())
+	p, err := processProvider(pid)
+	if err != nil {
+		return ProcessSnapshot{Exists: false}, time.Time{}, 0, err
+	}
+
+	info := infoFromProcess(pid, p)
+	createTime, err := p.CreateTime()
+	if err != nil {
+		return info, time.Time{}, 0, err
+	}
+	start := time.UnixMilli(createTime)
+	return info, start, time.Since(start), nil
+}
+
 // ChromeInfo returns resource usage for the managed Chrome process.
 // If pid <= 0 the result will have Exists=false and no error.
 func ChromeInfo(pid int) (ProcessSnapshot, error) {
@@ -53,7 +71,10 @@ func infoForPID(pid int32) (ProcessSnapshot, error) {
 	if err != nil {
 		return ProcessSnapshot{Exists: false}, nil
 	}
+	return infoFromProcess(pid, p), nil
+}
 
+func infoFromProcess(pid int32, p processHandle) ProcessSnapshot {
 	name, err := p.Name()
 	if err != nil {
 		name = ""
@@ -77,7 +98,7 @@ func infoForPID(pid int32) (ProcessSnapshot, error) {
 		CPU:      cpu,
 		MemoryMB: memMB,
 		Exists:   true,
-	}, nil
+	}
 }
 
 // FormatCPU returns a human-readable CPU percentage string.

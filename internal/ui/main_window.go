@@ -204,9 +204,6 @@ func (a *App) buildUI() {
 		}
 		visible := item.Content == a.infoPanel.widget
 		a.infoPanel.SetVisible(visible)
-		if visible {
-			a.infoPanel.refresh()
-		}
 	}
 
 	// 使用紧凑的垂直布局，减小状态栏与工具栏之间的空隙。
@@ -244,20 +241,26 @@ func (a *App) startChromeTicker() {
 	a.chromeTicker = time.NewTicker(1 * time.Second)
 	a.chromeDone = make(chan struct{})
 	go func() {
+		var lastStatus browser.ChromeStatus
+		statusSeen := false
 		for {
 			select {
 			case <-a.chromeTicker.C:
-				fyne.Do(func() {
-					st := a.browserMgr.Status()
-					a.statusBar.setChrome(st)
-					managed := st == browser.ChromeRunning || st == browser.ChromeStarting
-					if a.runPanel != nil {
-						a.runPanel.setChromeManaged(managed)
-					}
-					if a.globalToolbar != nil {
-						a.globalToolbar.setChromeManaged(managed)
-					}
-				})
+				st := a.browserMgr.Status()
+				if statusSeen && st == lastStatus {
+					continue
+				}
+				statusSeen = true
+				lastStatus = st
+
+				a.statusBar.setChrome(st)
+				managed := st == browser.ChromeRunning || st == browser.ChromeStarting
+				if a.runPanel != nil {
+					a.runPanel.setChromeManaged(managed)
+				}
+				if a.globalToolbar != nil {
+					a.globalToolbar.setChromeManaged(managed)
+				}
 			case <-a.chromeDone:
 				return
 			}

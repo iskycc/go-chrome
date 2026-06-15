@@ -42,6 +42,7 @@ type statusItem struct {
 	value *widget.Label
 	dot   *canvas.Circle
 	row   fyne.CanvasObject
+	kind  statusKind
 }
 
 // newStatusItem builds a compact status row: [muted field, value, dot]. The
@@ -62,6 +63,7 @@ func newStatusItem(field, defaultValue string, kind statusKind, valueWidth float
 		field: newMutedText(field),
 		value: val,
 		dot:   dot,
+		kind:  kind,
 	}
 	si.row = container.NewCenter(container.NewHBox(si.field, valueBox, dotBox))
 	return si
@@ -75,6 +77,10 @@ func (si *statusItem) setValue(text string) {
 }
 
 func (si *statusItem) setKind(kind statusKind) {
+	if si.kind == kind {
+		return
+	}
+	si.kind = kind
 	si.setColor(uiColorForStatus(kind))
 }
 
