@@ -287,21 +287,42 @@ func (l *responsiveGridLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	if len(visible) == 0 {
 		return fyne.NewSize(0, 0)
 	}
+	gap := theme.Padding()
+
+	// Assume the most compact arrangement: maxColumns columns. This prevents
+	// VBox parents from reserving far more vertical space than the grid will
+	// actually use once laid out.
+	cols := l.maxColumns
+	if cols > len(visible) {
+		cols = len(visible)
+	}
+
 	width := float32(0)
 	height := float32(0)
-	gap := theme.Padding()
-	for i, obj := range visible {
-		size := obj.MinSize()
-		if size.Width > width {
-			width = size.Width
+	for rowStart := 0; rowStart < len(visible); rowStart += cols {
+		rowEnd := rowStart + cols
+		if rowEnd > len(visible) {
+			rowEnd = len(visible)
 		}
-		height += size.Height
-		if i > 0 {
+		rowHeight := float32(0)
+		for i := rowStart; i < rowEnd; i++ {
+			size := visible[i].MinSize()
+			if size.Width > width {
+				width = size.Width
+			}
+			if size.Height > rowHeight {
+				rowHeight = size.Height
+			}
+		}
+		height += rowHeight
+		if rowEnd < len(visible) {
 			height += gap
 		}
 	}
-	if width < l.minColumnWidth {
-		width = l.minColumnWidth
+
+	minWidth := l.minColumnWidth*float32(cols) + gap*float32(cols-1)
+	if width < minWidth {
+		width = minWidth
 	}
 	return fyne.NewSize(width, height)
 }
