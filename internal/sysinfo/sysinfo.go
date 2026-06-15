@@ -21,6 +21,32 @@ type ProcessSnapshot struct {
 	Exists   bool
 }
 
+// SystemSnapshot holds host-level operating system, CPU, and memory details.
+type SystemSnapshot struct {
+	OSName             string
+	OSVersion          string
+	OSBuild            string
+	Kernel             string
+	Arch               string
+	Hostname           string
+	CPUModel           string
+	CPUVendor          string
+	CPUIdentifier      string
+	CPUMHz             int
+	LogicalCPUs        int
+	PhysicalCores      int
+	CPUUsage           float64
+	MemoryTotalMB      float64
+	MemoryAvailableMB  float64
+	MemoryUsedMB       float64
+	MemoryUsagePercent float64
+}
+
+type systemCPUTimes struct {
+	idle  uint64
+	total uint64
+}
+
 // processHandle abstracts the parts of gopsutil/process we need so tests can
 // inject fake processes.
 type processHandle interface {
@@ -52,6 +78,14 @@ type Sampler struct {
 
 	chromePID int32
 	chrome    processHandle
+
+	lastChromeCPUTime time.Duration
+	lastChromeCPUWall time.Time
+
+	systemStatic       SystemSnapshot
+	systemStaticLoaded bool
+	lastSystemCPU      systemCPUTimes
+	hasLastSystemCPU   bool
 }
 
 // NewSampler creates a reusable process sampler for UI refresh loops.
@@ -61,6 +95,28 @@ func NewSampler() *Sampler {
 		selfStart: appStartedAt,
 		selfName:  currentProcessName(),
 	}
+}
+
+// SystemInfo returns host-level resource usage and static system details.
+func (s *Sampler) SystemInfo() (SystemSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.systemStaticLoaded {
+		s.systemStatic = systemStaticInfo()
+		s.systemStaticLoaded = true
+	}
+	snap := s.systemStatic
+	cpuTimes, ok := systemCPUTimesNow()
+	if ok {
+		if s.hasLastSystemCPU {
+			snap.CPUUsage = systemCPUPercent(cpuTimes, s.lastSystemCPU)
+		}
+		s.lastSystemCPU = cpuTimes
+		s.hasLastSystemCPU = true
+	}
+	fillSystemMemory(&snap)
+	return snap, nil
 }
 
 // SelfInfo returns the current process resource usage.
@@ -109,8 +165,7 @@ func ChromeInfo(pid int) (ProcessSnapshot, error) {
 func (s *Sampler) ChromeInfo(pid int) (ProcessSnapshot, error) {
 	if pid <= 0 {
 		s.mu.Lock()
-		s.chromePID = 0
-		s.chrome = nil
+		s.resetChromeLocked()
 		s.mu.Unlock()
 		return ProcessSnapshot{Exists: false}, nil
 	}
@@ -118,13 +173,7 @@ func (s *Sampler) ChromeInfo(pid int) (ProcessSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	p, err := s.processForChromeLocked(int32(pid))
-	if err != nil {
-		s.chromePID = 0
-		s.chrome = nil
-		return ProcessSnapshot{Exists: false}, nil
-	}
-	return infoFromProcess(int32(pid), p), nil
+	return s.chromeInfoLocked(int32(pid)), nil
 }
 
 func (s *Sampler) selfCPUPercentLocked() float64 {
@@ -138,14 +187,31 @@ func (s *Sampler) selfCPUPercentLocked() float64 {
 		s.lastSelfCPUWall = now
 		return 0
 	}
-	cpuDelta := cpuTime - s.lastSelfCPUTime
-	wallDelta := now.Sub(s.lastSelfCPUWall)
+	cpu := cpuPercent(cpuTime, now, s.lastSelfCPUTime, s.lastSelfCPUWall)
 	s.lastSelfCPUTime = cpuTime
 	s.lastSelfCPUWall = now
+	return cpu
+}
+
+func cpuPercent(cpuTime time.Duration, wall time.Time, lastCPUTime time.Duration, lastWall time.Time) float64 {
+	if lastWall.IsZero() {
+		return 0
+	}
+	cpuDelta := cpuTime - lastCPUTime
+	wallDelta := wall.Sub(lastWall)
 	if cpuDelta <= 0 || wallDelta <= 0 {
 		return 0
 	}
 	return cpuDelta.Seconds() / wallDelta.Seconds() * 100
+}
+
+func systemCPUPercent(now systemCPUTimes, last systemCPUTimes) float64 {
+	totalDelta := now.total - last.total
+	idleDelta := now.idle - last.idle
+	if totalDelta == 0 || idleDelta > totalDelta {
+		return 0
+	}
+	return float64(totalDelta-idleDelta) / float64(totalDelta) * 100
 }
 
 func (s *Sampler) processForChromeLocked(pid int32) (processHandle, error) {
@@ -159,6 +225,13 @@ func (s *Sampler) processForChromeLocked(pid int32) (processHandle, error) {
 	s.chromePID = pid
 	s.chrome = p
 	return p, nil
+}
+
+func (s *Sampler) resetChromeLocked() {
+	s.chromePID = 0
+	s.chrome = nil
+	s.lastChromeCPUTime = 0
+	s.lastChromeCPUWall = time.Time{}
 }
 
 func infoForPID(pid int32) (ProcessSnapshot, error) {

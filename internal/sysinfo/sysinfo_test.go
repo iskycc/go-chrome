@@ -2,6 +2,7 @@ package sysinfo
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -229,6 +230,49 @@ func TestFormatUptime(t *testing.T) {
 	}
 }
 
+func TestCPUPercent(t *testing.T) {
+	now := time.Now()
+	if got := cpuPercent(time.Second, now, 0, time.Time{}); got != 0 {
+		t.Fatalf("expected zero without previous wall time, got %f", got)
+	}
+	if got := cpuPercent(3*time.Second, now.Add(2*time.Second), time.Second, now); got != 100 {
+		t.Fatalf("expected 100%% single-core usage, got %f", got)
+	}
+	if got := cpuPercent(time.Second, now.Add(time.Second), 2*time.Second, now); got != 0 {
+		t.Fatalf("expected zero for negative CPU delta, got %f", got)
+	}
+}
+
+func TestSystemCPUPercent(t *testing.T) {
+	got := systemCPUPercent(
+		systemCPUTimes{idle: 30, total: 200},
+		systemCPUTimes{idle: 10, total: 100},
+	)
+	if got != 80 {
+		t.Fatalf("expected 80%% usage, got %f", got)
+	}
+	if got := systemCPUPercent(systemCPUTimes{idle: 10, total: 100}, systemCPUTimes{idle: 20, total: 100}); got != 0 {
+		t.Fatalf("expected zero for invalid delta, got %f", got)
+	}
+}
+
+func TestSamplerSystemInfo(t *testing.T) {
+	sampler := NewSampler()
+	info, err := sampler.SystemInfo()
+	if err != nil {
+		t.Fatalf("SystemInfo failed: %v", err)
+	}
+	if info.OSName == "" {
+		t.Fatal("expected OS name")
+	}
+	if info.LogicalCPUs <= 0 {
+		t.Fatalf("expected positive logical CPU count, got %d", info.LogicalCPUs)
+	}
+	if info.CPUUsage < 0 || info.MemoryUsagePercent < 0 {
+		t.Fatalf("expected non-negative percentages, got cpu=%f mem=%f", info.CPUUsage, info.MemoryUsagePercent)
+	}
+}
+
 func TestGoMemStats(t *testing.T) {
 	heapAlloc, heapSys := GoMemStats()
 	if heapAlloc < 0 {
@@ -269,6 +313,9 @@ func TestUptime_ProcessError(t *testing.T) {
 }
 
 func TestSamplerReusesProcessHandles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses native process sampling instead of cached gopsutil handles")
+	}
 	old := processProvider
 	calls := 0
 	processProvider = func(pid int32) (processHandle, error) {

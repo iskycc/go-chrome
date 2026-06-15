@@ -25,10 +25,29 @@ type infoPanel struct {
 	widget fyne.CanvasObject
 	sample *sysinfo.Sampler
 
+	systemOS              *widget.Label
+	systemVersion         *widget.Label
+	systemBuild           *widget.Label
+	systemKernel          *widget.Label
+	systemArch            *widget.Label
+	systemHostname        *widget.Label
+	systemCPUModel        *widget.Label
+	systemCPUVendor       *widget.Label
+	systemCPUIdentifier   *widget.Label
+	systemCPUMHz          *widget.Label
+	systemCPUCores        *widget.Label
+	systemCPUUsage        *widget.Label
+	systemMemoryTotal     *widget.Label
+	systemMemoryAvailable *widget.Label
+	systemMemoryUsed      *widget.Label
+	systemMemoryUsage     *widget.Label
+
 	selfPID       *widget.Label
 	selfName      *widget.Label
 	selfCPU       *widget.Label
 	selfMemory    *widget.Label
+	selfHeapAlloc *widget.Label
+	selfHeapSys   *widget.Label
 	selfStartTime *widget.Label
 	selfUptime    *widget.Label
 	chromeStatus  *widget.Label
@@ -46,10 +65,29 @@ type infoPanel struct {
 
 	// Cached values to avoid calling SetText when nothing changed.
 	cache struct {
+		systemOS              string
+		systemVersion         string
+		systemBuild           string
+		systemKernel          string
+		systemArch            string
+		systemHostname        string
+		systemCPUModel        string
+		systemCPUVendor       string
+		systemCPUIdentifier   string
+		systemCPUMHz          string
+		systemCPUCores        string
+		systemCPUUsage        string
+		systemMemoryTotal     string
+		systemMemoryAvailable string
+		systemMemoryUsed      string
+		systemMemoryUsage     string
+
 		selfPID       string
 		selfName      string
 		selfCPU       string
 		selfMemory    string
+		selfHeapAlloc string
+		selfHeapSys   string
 		selfStartTime string
 		selfUptime    string
 		chromeStatus  string
@@ -65,10 +103,28 @@ const infoPanelMinRefreshInterval = time.Second
 func newInfoPanel(app *App) *infoPanel {
 	p := &infoPanel{app: app, sample: sysinfo.NewSampler()}
 
+	p.systemOS = widget.NewLabel("")
+	p.systemVersion = widget.NewLabel("")
+	p.systemBuild = widget.NewLabel("")
+	p.systemKernel = widget.NewLabel("")
+	p.systemArch = widget.NewLabel("")
+	p.systemHostname = widget.NewLabel("")
+	p.systemCPUModel = widget.NewLabel("")
+	p.systemCPUVendor = widget.NewLabel("")
+	p.systemCPUIdentifier = widget.NewLabel("")
+	p.systemCPUMHz = widget.NewLabel("")
+	p.systemCPUCores = widget.NewLabel("")
+	p.systemCPUUsage = widget.NewLabel("")
+	p.systemMemoryTotal = widget.NewLabel("")
+	p.systemMemoryAvailable = widget.NewLabel("")
+	p.systemMemoryUsed = widget.NewLabel("")
+	p.systemMemoryUsage = widget.NewLabel("")
 	p.selfPID = widget.NewLabel("")
 	p.selfName = widget.NewLabel("")
 	p.selfCPU = widget.NewLabel("")
 	p.selfMemory = widget.NewLabel("")
+	p.selfHeapAlloc = widget.NewLabel("")
+	p.selfHeapSys = widget.NewLabel("")
 	p.selfStartTime = widget.NewLabel("")
 	p.selfUptime = widget.NewLabel("")
 	p.chromeStatus = widget.NewLabel("")
@@ -77,11 +133,32 @@ func newInfoPanel(app *App) *infoPanel {
 	p.chromeCPU = widget.NewLabel("")
 	p.chromeMemory = widget.NewLabel("")
 
+	systemForm := widget.NewForm(
+		widget.NewFormItem("系统", p.systemOS),
+		widget.NewFormItem("版本", p.systemVersion),
+		widget.NewFormItem("构建", p.systemBuild),
+		widget.NewFormItem("内核", p.systemKernel),
+		widget.NewFormItem("架构", p.systemArch),
+		widget.NewFormItem("主机名", p.systemHostname),
+		widget.NewFormItem("CPU 型号", p.systemCPUModel),
+		widget.NewFormItem("CPU 厂商", p.systemCPUVendor),
+		widget.NewFormItem("CPU 标识", p.systemCPUIdentifier),
+		widget.NewFormItem("CPU 频率", p.systemCPUMHz),
+		widget.NewFormItem("CPU 核心", p.systemCPUCores),
+		widget.NewFormItem("CPU 占用", p.systemCPUUsage),
+		widget.NewFormItem("总内存", p.systemMemoryTotal),
+		widget.NewFormItem("可用内存", p.systemMemoryAvailable),
+		widget.NewFormItem("已用内存", p.systemMemoryUsed),
+		widget.NewFormItem("内存占用", p.systemMemoryUsage),
+	)
+
 	selfForm := widget.NewForm(
 		widget.NewFormItem("PID", p.selfPID),
 		widget.NewFormItem("名称", p.selfName),
 		widget.NewFormItem("CPU", p.selfCPU),
 		widget.NewFormItem("内存 (RSS)", p.selfMemory),
+		widget.NewFormItem("Go 堆已用", p.selfHeapAlloc),
+		widget.NewFormItem("Go 堆保留", p.selfHeapSys),
 		widget.NewFormItem("启动时间", p.selfStartTime),
 		widget.NewFormItem("运行时长", p.selfUptime),
 	)
@@ -102,6 +179,7 @@ func newInfoPanel(app *App) *infoPanel {
 	content := container.NewVBox(
 		newSectionHeader("系统信息", refreshBtn),
 		newMutedText(fmt.Sprintf("平台：%s/%s", runtime.GOOS, runtime.GOARCH)),
+		systemForm,
 
 		newSectionHeader("当前程序"),
 		selfForm,
@@ -191,10 +269,29 @@ func (p *infoPanel) beginRefresh() bool {
 }
 
 type infoSnapshot struct {
+	systemOS              string
+	systemVersion         string
+	systemBuild           string
+	systemKernel          string
+	systemArch            string
+	systemHostname        string
+	systemCPUModel        string
+	systemCPUVendor       string
+	systemCPUIdentifier   string
+	systemCPUMHz          string
+	systemCPUCores        string
+	systemCPUUsage        string
+	systemMemoryTotal     string
+	systemMemoryAvailable string
+	systemMemoryUsed      string
+	systemMemoryUsage     string
+
 	selfPID       string
 	selfName      string
 	selfCPU       string
 	selfMemory    string
+	selfHeapAlloc string
+	selfHeapSys   string
 	selfStartTime string
 	selfUptime    string
 	chromeStatus  string
@@ -207,6 +304,28 @@ type infoSnapshot struct {
 func (p *infoPanel) collectSnapshot() infoSnapshot {
 	var snap infoSnapshot
 
+	system, err := p.sample.SystemInfo()
+	if err != nil {
+		snap.systemOS = "读取失败"
+	} else {
+		snap.systemOS = fallbackText(system.OSName)
+		snap.systemVersion = fallbackText(system.OSVersion)
+		snap.systemBuild = fallbackText(system.OSBuild)
+		snap.systemKernel = fallbackText(system.Kernel)
+		snap.systemArch = fallbackText(system.Arch)
+		snap.systemHostname = fallbackText(system.Hostname)
+		snap.systemCPUModel = fallbackText(system.CPUModel)
+		snap.systemCPUVendor = fallbackText(system.CPUVendor)
+		snap.systemCPUIdentifier = fallbackText(system.CPUIdentifier)
+		snap.systemCPUMHz = formatMHz(system.CPUMHz)
+		snap.systemCPUCores = formatCores(system.LogicalCPUs, system.PhysicalCores)
+		snap.systemCPUUsage = sysinfo.FormatCPU(system.CPUUsage)
+		snap.systemMemoryTotal = formatOptionalMemory(system.MemoryTotalMB)
+		snap.systemMemoryAvailable = formatOptionalMemory(system.MemoryAvailableMB)
+		snap.systemMemoryUsed = formatOptionalMemory(system.MemoryUsedMB)
+		snap.systemMemoryUsage = sysinfo.FormatCPU(system.MemoryUsagePercent)
+	}
+
 	self, start, uptime, err := p.sample.SelfInfoWithUptime()
 	if err != nil && !self.Exists {
 		snap.selfPID = "读取失败"
@@ -215,6 +334,9 @@ func (p *infoPanel) collectSnapshot() infoSnapshot {
 		snap.selfName = self.Name
 		snap.selfCPU = sysinfo.FormatCPU(self.CPU)
 		snap.selfMemory = sysinfo.FormatMemory(self.MemoryMB)
+		heapAlloc, heapSys := sysinfo.GoMemStats()
+		snap.selfHeapAlloc = sysinfo.FormatMemory(heapAlloc)
+		snap.selfHeapSys = sysinfo.FormatMemory(heapSys)
 		if err == nil {
 			snap.selfStartTime = sysinfo.FormatStartTime(start)
 		} else {
@@ -265,10 +387,28 @@ func (p *infoPanel) collectSnapshot() infoSnapshot {
 }
 
 func (p *infoPanel) applySnapshot(snap infoSnapshot) {
+	p.setLabel(p.systemOS, &p.cache.systemOS, snap.systemOS)
+	p.setLabel(p.systemVersion, &p.cache.systemVersion, snap.systemVersion)
+	p.setLabel(p.systemBuild, &p.cache.systemBuild, snap.systemBuild)
+	p.setLabel(p.systemKernel, &p.cache.systemKernel, snap.systemKernel)
+	p.setLabel(p.systemArch, &p.cache.systemArch, snap.systemArch)
+	p.setLabel(p.systemHostname, &p.cache.systemHostname, snap.systemHostname)
+	p.setLabel(p.systemCPUModel, &p.cache.systemCPUModel, snap.systemCPUModel)
+	p.setLabel(p.systemCPUVendor, &p.cache.systemCPUVendor, snap.systemCPUVendor)
+	p.setLabel(p.systemCPUIdentifier, &p.cache.systemCPUIdentifier, snap.systemCPUIdentifier)
+	p.setLabel(p.systemCPUMHz, &p.cache.systemCPUMHz, snap.systemCPUMHz)
+	p.setLabel(p.systemCPUCores, &p.cache.systemCPUCores, snap.systemCPUCores)
+	p.setLabel(p.systemCPUUsage, &p.cache.systemCPUUsage, snap.systemCPUUsage)
+	p.setLabel(p.systemMemoryTotal, &p.cache.systemMemoryTotal, snap.systemMemoryTotal)
+	p.setLabel(p.systemMemoryAvailable, &p.cache.systemMemoryAvailable, snap.systemMemoryAvailable)
+	p.setLabel(p.systemMemoryUsed, &p.cache.systemMemoryUsed, snap.systemMemoryUsed)
+	p.setLabel(p.systemMemoryUsage, &p.cache.systemMemoryUsage, snap.systemMemoryUsage)
 	p.setLabel(p.selfPID, &p.cache.selfPID, snap.selfPID)
 	p.setLabel(p.selfName, &p.cache.selfName, snap.selfName)
 	p.setLabel(p.selfCPU, &p.cache.selfCPU, snap.selfCPU)
 	p.setLabel(p.selfMemory, &p.cache.selfMemory, snap.selfMemory)
+	p.setLabel(p.selfHeapAlloc, &p.cache.selfHeapAlloc, snap.selfHeapAlloc)
+	p.setLabel(p.selfHeapSys, &p.cache.selfHeapSys, snap.selfHeapSys)
 	p.setLabel(p.selfStartTime, &p.cache.selfStartTime, snap.selfStartTime)
 	p.setLabel(p.selfUptime, &p.cache.selfUptime, snap.selfUptime)
 	p.setLabel(p.chromeStatus, &p.cache.chromeStatus, snap.chromeStatus)
@@ -286,4 +426,38 @@ func (p *infoPanel) setLabel(label *widget.Label, cache *string, value string) {
 	}
 	*cache = value
 	label.SetText(value)
+}
+
+func fallbackText(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+func formatOptionalMemory(mb float64) string {
+	if mb <= 0 {
+		return "-"
+	}
+	return sysinfo.FormatMemory(mb)
+}
+
+func formatMHz(mhz int) string {
+	if mhz <= 0 {
+		return "-"
+	}
+	if mhz >= 1000 {
+		return fmt.Sprintf("%.2f GHz", float64(mhz)/1000)
+	}
+	return fmt.Sprintf("%d MHz", mhz)
+}
+
+func formatCores(logical, physical int) string {
+	if logical <= 0 && physical <= 0 {
+		return "-"
+	}
+	if physical > 0 {
+		return fmt.Sprintf("%d 逻辑 / %d 物理", logical, physical)
+	}
+	return fmt.Sprintf("%d 逻辑", logical)
 }
