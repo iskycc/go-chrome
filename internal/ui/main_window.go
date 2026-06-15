@@ -62,6 +62,9 @@ type App struct {
 	chromeDone   chan struct{}
 
 	globalToolbar *globalToolbar
+
+	autoRunFlowID string
+	autoRunEnvID  string
 }
 
 // runHistoryAdapter adapts db.RunRepo to runner.HistorySaver.
@@ -75,6 +78,88 @@ func (a *runHistoryAdapter) Save(result *runner.RunResult) error {
 
 func New(cfg *config.Config, dirs *appdirs.Directories) *App {
 	return &App{cfg: cfg, dirs: dirs}
+}
+
+// SetAutoRun records a flow+environment that should be executed once the UI is ready.
+func (a *App) SetAutoRun(flowID, envID string) {
+	a.autoRunFlowID = flowID
+	a.autoRunEnvID = envID
+}
+
+// TriggerAutoRun is called from another process/instance to ask this running
+// instance to execute the given flow with the given environment.
+func (a *App) TriggerAutoRun(flowID, envID string) {
+	fyne.Do(func() {
+		a.runFlowByID(flowID, envID)
+	})
+}
+
+func (a *App) executeAutoRun() {
+	if a.autoRunFlowID == "" || a.autoRunEnvID == "" {
+		return
+	}
+	// Wait briefly for the UI to fully render and selectors to populate.
+	time.Sleep(200 * time.Millisecond)
+	fyne.Do(func() {
+		a.runFlowByID(a.autoRunFlowID, a.autoRunEnvID)
+	})
+}
+
+func (a *App) runFlowByID(flowID, envID string) {
+	if a.mainWin == nil {
+		return
+	}
+
+	// Select the flow. Bypass the dirty-check prompt because this path is
+	// triggered automatically from a shortcut or IPC request.
+	found := false
+	for _, f := range a.flowLibrary.flows {
+		if f.ID == flowID {
+			a.setCurrentFlow(f)
+			found = true
+			break
+		}
+	}
+	if !found {
+		dialog.ShowError(fmt.Errorf("流程不存在: %s", flowID), a.mainWin)
+		return
+	}
+
+	// Select the environment.
+	env, err := a.envRepo.Get(envID)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("环境配置不存在: %s", envID), a.mainWin)
+		return
+	}
+	if a.globalToolbar != nil && a.globalToolbar.envSelect != nil {
+		a.globalToolbar.envSelect.SetSelected(env.Name)
+	}
+
+	// Stop any running flow first.
+	if a.runner.IsRunning() {
+		a.runner.Stop()
+		a.runPanel.log("已有流程运行中，已停止并准备执行新流程")
+	}
+	if a.stepRunner != nil && !a.stepRunner.IsFinished() {
+		a.stepRunner.Stop()
+		a.stepRunner = nil
+	}
+
+	// Switch to run panel tab and start.
+	a.selectRunTab()
+	a.runCurrentFlow()
+}
+
+func (a *App) selectRunTab() {
+	if a.moduleTabs == nil {
+		return
+	}
+	for i, item := range a.moduleTabs.Items {
+		if item.Text == "运行详情" {
+			a.moduleTabs.SelectTabIndex(i)
+			return
+		}
+	}
 }
 
 func (a *App) Run() {
@@ -122,6 +207,9 @@ func (a *App) Run() {
 	a.buildUI()
 	a.firstRunCheck()
 	a.startChromeTicker()
+	if a.autoRunFlowID != "" && a.autoRunEnvID != "" {
+		go a.executeAutoRun()
+	}
 	a.mainWin.ShowAndRun()
 }
 

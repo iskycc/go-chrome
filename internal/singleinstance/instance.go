@@ -65,7 +65,7 @@ func readPortFile() (int, error) {
 	}
 	var port int
 	if _, err := fmt.Sscanf(string(data), "%d", &port); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse port file: %w", err)
 	}
 	return port, nil
 }
