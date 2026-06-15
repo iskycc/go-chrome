@@ -539,6 +539,10 @@ func (a *App) runCurrentFlow() {
 		dialog.ShowInformation("提示", "请先选择或新建一个流程", a.mainWin)
 		return
 	}
+	if len(a.currentFlow.Steps) == 0 {
+		dialog.ShowInformation("提示", "当前流程没有步骤或尚未完整加载，请重新从流程库选择流程", a.mainWin)
+		return
+	}
 	if a.runner.IsRunning() {
 		dialog.ShowInformation("提示", "当前已有流程正在运行", a.mainWin)
 		return

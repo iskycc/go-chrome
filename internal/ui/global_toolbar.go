@@ -50,6 +50,14 @@ func newGlobalToolbar(app *App) *globalToolbar {
 	t.flowSelect = widget.NewSelect([]string{}, func(label string) {
 		for _, opt := range t.flowOptions {
 			if opt.Label == label {
+				// Load the full flow (including steps) from storage. The cached
+				// flowByID entries only contain summary fields returned by ListSorted.
+				if app.flowStore != nil {
+					if loaded, err := app.flowStore.Load(opt.ID); err == nil {
+						app.onFlowSelected(loaded)
+						return
+					}
+				}
 				f := t.flowByID[opt.ID]
 				if f == nil {
 					return
