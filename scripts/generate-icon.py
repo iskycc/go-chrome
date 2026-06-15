@@ -5,8 +5,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-SIZE = 256
-RADIUS = 48
 BG_START = (37, 99, 235)   # #2563EB
 BG_END = (14, 165, 233)    # #0EA5E9
 WHITE = (255, 255, 255)
