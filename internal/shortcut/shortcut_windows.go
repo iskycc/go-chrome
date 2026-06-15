@@ -9,6 +9,11 @@ import (
 	"github.com/go-ole/go-ole/oleutil"
 )
 
+// S_FALSE is the HRESULT returned by CoInitializeEx when COM has already been
+// initialized on the calling thread. It is not exported by go-ole, so we
+// declare the raw value (0x00000001) here.
+const sFalse uintptr = 0x1
+
 func Create(opts Options) error {
 	if opts.ShortcutPath == "" {
 		return fmt.Errorf("shortcut path is required")
@@ -18,7 +23,7 @@ func Create(opts Options) error {
 	}
 
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
-		if oleErr, ok := err.(*ole.OleError); !ok || oleErr.Code() != ole.S_FALSE {
+		if oleErr, ok := err.(*ole.OleError); !ok || oleErr.Code() != sFalse {
 			return fmt.Errorf("coinit: %w", err)
 		}
 	}
