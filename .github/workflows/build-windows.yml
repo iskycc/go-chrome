@@ -3,7 +3,12 @@ name: Build Windows Packages
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -53,8 +58,15 @@ jobs:
             (cd dist && zip -r "go-chrome-windows-${arch}.zip" "go-chrome-windows-${arch}")
           done
 
-      - name: Upload Windows packages
+      - name: Upload Windows packages artifact
         uses: actions/upload-artifact@v4
         with:
           name: go-chrome-windows-packages
           path: dist/*.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
