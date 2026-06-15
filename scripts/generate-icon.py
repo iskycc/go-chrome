@@ -90,10 +90,13 @@ def main() -> None:
     images[-1].save(OUTPUT_PNG, "PNG")
 
     # Save multi-size ICO (Windows taskbar needs 16/32/48)
-    images[0].save(
+    # Use the largest image as the save base so Pillow's default size
+    # filter does not drop the larger frames.
+    images[-1].save(
         OUTPUT_ICO,
         format="ICO",
-        append_images=images[1:],
+        sizes=[(s, s) for s in sizes],
+        append_images=images[:-1],
     )
 
     print(f"Generated: {OUTPUT_PNG}")
