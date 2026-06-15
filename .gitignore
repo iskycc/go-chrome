@@ -48,6 +48,10 @@ coverage.html
 stdout*.txt
 stderr*.txt
 
+# Python cache
+__pycache__/
+*.pyc
+
 # Runner artifacts (created by step screenshots / page dumps)
 internal/runner/page-*.html
 internal/runner/screenshot-*.png
