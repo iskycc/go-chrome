@@ -14,6 +14,11 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// readFileFunc is overridable for tests. The Windows implementation does not
+// read procfs, so the var exists only to keep cross-platform test code in
+// sysinfo_test.go compilable.
+var readFileFunc = os.ReadFile
+
 var (
 	procGetSystemTimes       = syscall.NewLazyDLL("kernel32.dll").NewProc("GetSystemTimes")
 	procGlobalMemoryStatusEx = syscall.NewLazyDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")

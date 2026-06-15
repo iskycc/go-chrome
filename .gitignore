@@ -48,6 +48,12 @@ coverage.html
 stdout*.txt
 stderr*.txt
 
+# Runner artifacts (created by step screenshots / page dumps)
+internal/runner/page-*.html
+internal/runner/screenshot-*.png
+**/page-*.html
+**/screenshot-*.png
+
 # Local agent task notes
 Todo*.md
 todo*.md
