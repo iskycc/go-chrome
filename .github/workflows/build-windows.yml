@@ -8,6 +8,7 @@ on:
 jobs:
   build-windows:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,22 +27,30 @@ jobs:
         run: |
           mkdir -p assets/fonts
           curl -L -o /tmp/MapleMono-CN.zip https://github.com/subframe7536/maple-font/releases/download/v7.9/MapleMono-CN.zip
-          unzip -j /tmp/MapleMono-CN.zip -d assets/fonts 'MapleMono-CN-Regular.ttf'
+          unzip -o -j /tmp/MapleMono-CN.zip -d assets/fonts 'MapleMono-CN-Regular.ttf'
           rm -f /tmp/MapleMono-CN.zip
 
       - name: Build Windows binaries (amd64, 386, arm64)
         run: |
-          fyne-cross windows --pull -arch=amd64,386,arm64 -output go-chrome ./cmd/go-chrome
+          fyne-cross windows --pull \
+            -arch=amd64,386,arm64 \
+            -app-id com.example.go-chrome \
+            -icon assets/icon.png \
+            -name go-chrome.exe \
+            -env GOTOOLCHAIN=auto \
+            ./cmd/go-chrome
 
       - name: Package release archives
         run: |
           mkdir -p dist
-          for d in fyne-cross/dist/windows-*; do
+          for d in fyne-cross/bin/windows-*; do
             [ -d "$d" ] || continue
             arch=$(basename "$d" | sed 's/windows-//')
-            cp README.md FAQ.md USER_GUIDE.md "$d/" 2>/dev/null || true
-            mkdir -p "$d/data" "$d/logs" "$d/chrome"
-            (cd "$d" && zip -r "../../dist/go-chrome-windows-${arch}.zip" .)
+            pkgdir="dist/go-chrome-windows-${arch}"
+            mkdir -p "$pkgdir/data" "$pkgdir/logs" "$pkgdir/chrome"
+            cp "$d/go-chrome.exe" "$pkgdir/"
+            cp README.md FAQ.md USER_GUIDE.md "$pkgdir/" 2>/dev/null || true
+            (cd dist && zip -r "go-chrome-windows-${arch}.zip" "go-chrome-windows-${arch}")
           done
 
       - name: Upload Windows packages
