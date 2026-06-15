@@ -58,10 +58,10 @@
 `internal/singleinstance` 包职责：
 
 1. **首次实例**：
-   - 创建 Windows 命名互斥体 `Global\go-chrome-single-instance`。
+   - 创建 Windows 命名互斥体 `Local\go-chrome-single-instance`（避免标准用户缺少 `SeCreateGlobalPrivilege`）。
    - 监听 `127.0.0.1:0`（系统分配端口）。
    - 将监听端口写入 `data/instance-port`。
-   - 提供 `Listen(ctx, handler)`，收到参数后回调处理函数。
+   - 无论是否从快捷方式启动，首次实例都启动 listener，以便后续快捷方式双击能唤醒它并转发执行请求。
 
 2. **后续实例**：
    - 打开互斥体失败，判定已有实例运行。
@@ -78,7 +78,7 @@
 UI 初始化完成后，若从命令行或 IPC 收到自动执行请求：
 
 1. 使用 `fyne.Do` 切回主线程。
-2. 根据 `flowID` 选中流程（`a.currentFlow`）。
+2. 根据 `flowID` 选中流程（`a.currentFlow`），自动执行路径绕过未保存修改的确认对话框。
 3. 根据 `envID` 设置工具栏环境选择（`envSelect.Selected`）。
 4. 重置运行面板（`a.runPanel.reset()`）。
 5. 如果 `runner.IsRunning()` 为 true，先调用 `runner.Stop()` 停止当前执行。
@@ -130,6 +130,8 @@ while candidate 已存在:
 
 ### 5.2 双击快捷方式执行
 
+> 注意：首次实例无论是普通方式启动还是快捷方式启动，都会启动 TCP listener，因此后续快捷方式双击总能被唤醒。
+
 ```text
 用户双击 .lnk
   → Windows 启动 go-chrome.exe --flow=<id> --env=<id>
@@ -139,7 +141,7 @@ while candidate 已存在:
   → 新进程退出
   → 已有实例 IPC handler 收到消息
   → fyne.Do 切主线程
-  → 选中流程/环境
+  → 选中流程/环境（绕过脏检查提示）
   → 停止当前运行（如有）
   → runCurrentFlow() 自动执行
 ```
@@ -149,11 +151,11 @@ while candidate 已存在:
 ```text
 用户双击 .lnk
   → singleinstance.TryStart() 创建互斥体成功
-  → 启动 TCP 监听
+  → 启动 TCP 监听（首次实例始终监听，即使普通启动也不例外）
   → UI 初始化完成
   → main.go 检测到 --flow/--env
   → 通过通道通知 UI 自动执行
-  → UI 选中流程/环境并 runCurrentFlow()
+  → UI 选中流程/环境（绕过脏检查提示）并 runCurrentFlow()
 ```
 
 ## 6. 错误处理

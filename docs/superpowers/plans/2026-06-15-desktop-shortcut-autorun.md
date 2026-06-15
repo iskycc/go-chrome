@@ -108,7 +108,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const mutexName = `Global\go-chrome-single-instance`
+const mutexName = `Local\go-chrome-single-instance`
 
 var (
 	mutexHandle windows.Handle
@@ -697,26 +697,39 @@ func run() error {
 		autoRun = &singleinstance.RunRequest{FlowID: args.flowID, EnvID: args.envID}
 	}
 
+	uiApp := ui.New(cfg, dirs)
+
+	// Always register the single-instance listener so that a later shortcut
+	// double-click can forward its auto-run request to this running instance.
+	ctx := context.Background()
+	var req singleinstance.RunRequest
 	if autoRun != nil {
-		ctx := context.Background()
-		res, inst, err := singleinstance.TryStart(ctx, *autoRun, nil)
-		if err != nil {
-			logx.Warnf("single instance check failed: %v", err)
+		req = *autoRun
+	}
+	res, inst, err := singleinstance.TryStart(ctx, req, func(req singleinstance.RunRequest) {
+		if req.FlowID != "" && req.EnvID != "" {
+			uiApp.TriggerAutoRun(req.FlowID, req.EnvID)
 		}
-		switch res {
-		case singleinstance.ResultSent:
-			logx.Info("forwarded auto-run to existing instance")
-			return nil
-		case singleinstance.ResultFallback:
-			logx.Warn("could not forward to existing instance; starting new instance")
-		case singleinstance.ResultStarted:
-			if inst != nil {
-				defer inst.Shutdown()
-			}
+	})
+	if err != nil {
+		logx.Warnf("single instance check failed: %v", err)
+	}
+	switch res {
+	case singleinstance.ResultSent:
+		logx.Info("forwarded request to existing instance")
+		if inst != nil {
+			inst.Shutdown()
 		}
+		return nil
+	case singleinstance.ResultFallback:
+		logx.Warn("could not contact existing instance; starting new instance")
+	case singleinstance.ResultStarted:
+		logx.Info("first instance")
+	}
+	if inst != nil {
+		defer inst.Shutdown()
 	}
 
-	uiApp := ui.New(cfg, dirs)
 	if autoRun != nil {
 		uiApp.SetAutoRun(autoRun.FlowID, autoRun.EnvID)
 	}
@@ -807,11 +820,12 @@ func (a *App) runFlowByID(flowID, envID string) {
 		return
 	}
 
-	// Select the flow.
+	// Select the flow. Bypass the dirty-check prompt because this path is
+	// triggered automatically from a shortcut or IPC request.
 	found := false
 	for _, f := range a.flowLibrary.flows {
 		if f.ID == flowID {
-			a.onFlowSelected(f)
+			a.setCurrentFlow(f)
 			found = true
 			break
 		}
@@ -842,7 +856,7 @@ func (a *App) runFlowByID(flowID, envID string) {
 	}
 
 	// Switch to run panel tab and start.
-	a.moduleTabs.SelectTabIndex(5) // "运行详情" tab
+	a.selectRunTab()
 	a.runCurrentFlow()
 }
 ```
