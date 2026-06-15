@@ -63,29 +63,38 @@ func run() error {
 
 	uiApp := ui.New(cfg, dirs)
 
+	// Always register the single-instance listener so that a later shortcut
+	// double-click can forward its auto-run request to this running instance.
+	ctx := context.Background()
+	var req singleinstance.RunRequest
 	if autoRun != nil {
-		ctx := context.Background()
-		res, inst, err := singleinstance.TryStart(ctx, *autoRun, func(req singleinstance.RunRequest) {
+		req = *autoRun
+	}
+	res, inst, err := singleinstance.TryStart(ctx, req, func(req singleinstance.RunRequest) {
+		if req.FlowID != "" && req.EnvID != "" {
 			uiApp.TriggerAutoRun(req.FlowID, req.EnvID)
-		})
-		if err != nil {
-			logx.Warnf("single instance check failed: %v", err)
 		}
-		switch res {
-		case singleinstance.ResultSent:
-			logx.Info("forwarded auto-run to existing instance")
-			if inst != nil {
-				inst.Shutdown()
-			}
-			return nil
-		case singleinstance.ResultFallback:
-			logx.Warn("could not forward to existing instance; starting new instance")
-		case singleinstance.ResultStarted:
-			logx.Info("first instance, will auto-run after UI initializes")
-		}
+	})
+	if err != nil {
+		logx.Warnf("single instance check failed: %v", err)
+	}
+	switch res {
+	case singleinstance.ResultSent:
+		logx.Info("forwarded request to existing instance")
 		if inst != nil {
-			defer inst.Shutdown()
+			inst.Shutdown()
 		}
+		return nil
+	case singleinstance.ResultFallback:
+		logx.Warn("could not contact existing instance; starting new instance")
+	case singleinstance.ResultStarted:
+		logx.Info("first instance")
+	}
+	if inst != nil {
+		defer inst.Shutdown()
+	}
+
+	if autoRun != nil {
 		uiApp.SetAutoRun(autoRun.FlowID, autoRun.EnvID)
 	}
 

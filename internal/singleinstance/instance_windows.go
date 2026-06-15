@@ -17,7 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const mutexName = `Global\go-chrome-single-instance`
+const mutexName = `Local\go-chrome-single-instance`
 
 type windowsInstance struct {
 	listener    net.Listener

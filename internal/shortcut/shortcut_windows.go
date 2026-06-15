@@ -28,6 +28,8 @@ func Create(opts Options) error {
 	if err != nil {
 		return fmt.Errorf("create WScript.Shell: %w", err)
 	}
+	defer unknown.Release()
+
 	shell, err := unknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
 		return fmt.Errorf("query interface: %w", err)

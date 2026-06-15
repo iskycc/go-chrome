@@ -110,11 +110,12 @@ func (a *App) runFlowByID(flowID, envID string) {
 		return
 	}
 
-	// Select the flow.
+	// Select the flow. Bypass the dirty-check prompt because this path is
+	// triggered automatically from a shortcut or IPC request.
 	found := false
 	for _, f := range a.flowLibrary.flows {
 		if f.ID == flowID {
-			a.onFlowSelected(f)
+			a.setCurrentFlow(f)
 			found = true
 			break
 		}
@@ -145,8 +146,20 @@ func (a *App) runFlowByID(flowID, envID string) {
 	}
 
 	// Switch to run panel tab and start.
-	a.moduleTabs.SelectTabIndex(5)
+	a.selectRunTab()
 	a.runCurrentFlow()
+}
+
+func (a *App) selectRunTab() {
+	if a.moduleTabs == nil {
+		return
+	}
+	for i, item := range a.moduleTabs.Items {
+		if item.Text == "运行详情" {
+			a.moduleTabs.SelectTabIndex(i)
+			return
+		}
+	}
 }
 
 func (a *App) Run() {
